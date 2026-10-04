@@ -31,15 +31,7 @@ fn set_mac(iface: &str, mac: &str) -> Result<()> {
 }
 
 
-pub fn disable(st: &mut State) -> Result<()> {
-    for (i, mac) in std::mem::take(&mut st.macs) {
-        if fs::metadata(format!("/sys/class/net/{i}")).is_ok() {
-            set_mac(&i, &mac)?;
-            println!("    {i}: restaurada {mac}");
-        }
-    }
-    Ok(())
-}
+
 
 pub fn enable(st: &mut State) -> Result<()> {
     let ifaces = physical_ifaces();
@@ -57,6 +49,12 @@ pub fn enable(st: &mut State) -> Result<()> {
             }
             Err(e) => {
                 println!("    {i}: NO se pudo cambiar ({e:#})");
+                // Algunos drivers dan error pero dejan otra MAC registrada: anotarlo para restaurar.
+                let now = sys::read_trim(&format!("/sys/class/net/{i}/address")).unwrap_or_default();
+                if now != orig {
+                    println!("    ⚠ {i}: el driver dio error pero el kernel muestra {now}; se restaurará (esa MAC NO es fiable)");
+                    st.mac_dirty.entry(i.clone()).or_insert(orig);
+                }
                 failed.push(i);
             }
         }
@@ -66,6 +64,32 @@ pub fn enable(st: &mut State) -> Result<()> {
     }
     if !failed.is_empty() {
         println!("    ⚠ siguen con su MAC REAL: {}", failed.join(", "));
+    }
+    Ok(())
+}
+
+pub fn disable(st: &mut State) -> Result<()> {
+    let mut todo = std::mem::take(&mut st.macs);
+    todo.extend(std::mem::take(&mut st.mac_dirty));
+    let mut stuck: Vec<String> = vec![];
+    for (i, mac) in todo {
+        if fs::metadata(format!("/sys/class/net/{i}")).is_err() {
+            continue;
+        }
+        let now = sys::read_trim(&format!("/sys/class/net/{i}/address")).unwrap_or_default();
+        if now == mac {
+            continue;
+        }
+        match set_mac(&i, &mac) {
+            Ok(()) => println!("    {i}: restaurada {mac}"),
+            Err(e) => {
+                println!("    aviso: {i}: no se pudo restaurar {mac} ({e:#})");
+                stuck.push(i);
+            }
+        }
+    }
+    if !stuck.is_empty() {
+        anyhow::bail!("MAC sin restaurar en: {} (reconecta con nmcli o reinicia)", stuck.join(", "));
     }
     Ok(())
 }

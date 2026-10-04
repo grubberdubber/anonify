@@ -15,6 +15,8 @@ pub struct State {
     pub active: BTreeSet<Module>,
     /// interfaz -> MAC original
     pub macs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub mac_dirty: BTreeMap<String, String>,
     pub hostname: Option<String>,
     #[serde(default)]
     pub hostname_applied: Option<String>,
