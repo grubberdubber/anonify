@@ -35,3 +35,7 @@ state.json
 # Sistema operativo
 .DS_Store
 Thumbs.db
+.claude/
+CLAUDE.md
+repomix-output.xml
+graphify-out/
