@@ -1,0 +1,37 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+*.pdb
+
+# Credenciales sensibles, llaves y configuraciones de VPN (WireGuard, OpenVPN, etc.)
+*.conf
+*.ovpn
+*.key
+*.pem
+*.crt
+*.pfx
+*.p12
+*.token
+*.secret
+*.env
+*.env.*
+!.env.example
+
+# Logs y estado local de pruebas
+*.log
+/run/
+state.json
+
+# Editores y entornos
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.vim/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
