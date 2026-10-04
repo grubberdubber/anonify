@@ -1,3 +1,4 @@
+use crate::i18n::{tr, Lang};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,7 @@ pub mod sysctl;
 pub mod tor;
 pub mod vpn;
 
-/// El orden de declaración = orden de activación (al desactivar se invierte).
+/// Declaration order = activation order (reversed on deactivation).
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[clap(rename_all = "kebab-case")]
 pub enum Module {
@@ -26,7 +27,7 @@ pub enum Module {
 }
 
 impl Module {
-    /// Módulos que activa `--all` (vpn y killswitch son opt-in explícitos).
+    /// Modules enabled by `--all` (vpn and killswitch are explicit opt-in).
     pub const DEFAULT_SET: &'static [Module] = &[
         Module::Mac,
         Module::Hostname,
@@ -36,16 +37,48 @@ impl Module {
         Module::Tor,
     ];
 
-    pub fn desc(&self) -> &'static str {
+    pub fn desc(&self, lang: Lang) -> &'static str {
         match self {
-            Module::Mac => "MAC aleatoria en interfaces físicas",
-            Module::Hostname => "hostname transitorio aleatorio",
-            Module::Sysctl => "hardening de kernel/red (sysctl)",
-            Module::Ipv6 => "desactiva IPv6 (evita fugas)",
-            Module::Vpn => "WireGuard / Proton vía wg-quick",
-            Module::Dns => "resolv.conf temporal (bind mount)",
-            Module::Tor => "proxy transparente Tor + firewall anti-fuga",
-            Module::Killswitch => "kill switch: solo túnel VPN / Tor",
+            Module::Mac => tr(
+                lang,
+                "random MAC on physical interfaces",
+                "MAC aleatoria en interfaces físicas",
+            ),
+            Module::Hostname => tr(
+                lang,
+                "random ephemeral hostname",
+                "hostname transitorio aleatorio",
+            ),
+            Module::Sysctl => tr(
+                lang,
+                "kernel/network hardening (sysctl)",
+                "hardening de kernel/red (sysctl)",
+            ),
+            Module::Ipv6 => tr(
+                lang,
+                "disables IPv6 (prevents leaks)",
+                "desactiva IPv6 (evita fugas)",
+            ),
+            Module::Vpn => tr(
+                lang,
+                "WireGuard / Proton via wg-quick",
+                "WireGuard / Proton vía wg-quick",
+            ),
+            Module::Dns => tr(
+                lang,
+                "temporary resolv.conf (bind mount)",
+                "resolv.conf temporal (bind mount)",
+            ),
+            Module::Tor => tr(
+                lang,
+                "transparent Tor proxy + anti-leak firewall",
+                "proxy transparente Tor + firewall anti-fuga",
+            ),
+            Module::Killswitch => tr(
+                lang,
+                "kill switch: VPN/Tor tunnel only",
+                "kill switch: solo túnel VPN / Tor",
+            ),
         }
     }
 }
