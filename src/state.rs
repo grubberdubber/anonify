@@ -18,6 +18,8 @@ pub struct State {
     pub hostname: Option<String>,
     #[serde(default)]
     pub hostname_applied: Option<String>,
+    #[serde(default)]
+    pub nm_devices: Vec<String>,
     /// clave sysctl -> valor original
     pub sysctl: BTreeMap<String, String>,
     pub dns_bound: bool,

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod dns;
 pub mod hostname;
+pub mod ipv6;
 pub mod killswitch;
 pub mod launch;
 pub mod mac;
@@ -15,9 +16,9 @@ pub mod vpn;
 #[clap(rename_all = "kebab-case")]
 pub enum Module {
     Mac,
-    Hostname,
     Sysctl,
     Ipv6,
+    Hostname,
     Vpn,
     Dns,
     Tor,

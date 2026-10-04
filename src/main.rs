@@ -4,7 +4,7 @@ mod sys;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
-use modules::{dns, hostname, killswitch, launch, mac, sysctl, tor, vpn, Module};
+use modules::{dns, hostname, ipv6, killswitch, launch, mac, sysctl, tor, vpn, Module};
 use state::State;
 use std::path::PathBuf;
 
@@ -54,7 +54,7 @@ fn activate(m: Module, st: &mut State, conf: Option<&PathBuf>) -> Result<()> {
         Module::Mac => mac::enable(st),
         Module::Hostname => hostname::enable(st),
         Module::Sysctl => sysctl::apply(st, sysctl::HARDEN),
-        Module::Ipv6 => sysctl::apply(st, sysctl::IPV6),
+        Module::Ipv6 => ipv6::enable(st),
         Module::Vpn => vpn::enable(st, conf.map(|p| p.as_path())),
         Module::Dns => dns::enable(st),
         Module::Tor => tor::enable(),
@@ -67,7 +67,7 @@ fn deactivate(m: Module, st: &mut State) -> Result<()> {
         Module::Mac => mac::disable(st),
         Module::Hostname => hostname::disable(st),
         Module::Sysctl => sysctl::revert(st, sysctl::HARDEN),
-        Module::Ipv6 => sysctl::revert(st, sysctl::IPV6),
+        Module::Ipv6 => ipv6::disable(st),
         Module::Vpn => vpn::disable(st),
         Module::Dns => dns::disable(st),
         Module::Tor => tor::disable(),
@@ -184,13 +184,13 @@ fn holds(m: Module, st: &State) -> bool {
 
 /// NetworkManager y otros pueden revertir cambios segundos después: esperar y re-verificar.
 fn settle_check() -> Result<()> {
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    std::thread::sleep(std::time::Duration::from_secs(20));
     let st = State::load()?;
     let lost: Vec<String> = st.active.iter().filter(|m| !holds(**m, &st)).map(|m| format!("{m:?}")).collect();
     if !lost.is_empty() {
         bail!("ATENCIÓN: ya no están aplicados: {}. Algo del sistema los revirtió.", lost.join(", "));
     }
-    println!("[✓] verificado: todo sigue aplicado tras 5 s");
+    println!("[✓] verificado: todo sigue aplicado tras 20 s");
     Ok(())
 }
 
