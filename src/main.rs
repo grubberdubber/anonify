@@ -203,7 +203,28 @@ fn check(lang: Lang) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    // clap handles `--help`/`-h`, `--version`, and a missing/invalid
+    // subcommand internally and exits before ever returning a `Cli` value.
+    // To still show the banner on those paths (bare `anonify`, `anonify -h`),
+    // we pre-scan the raw args for `--quiet`/`-q` and `--lang` — the only
+    // flags the banner needs — and print it ourselves before handing off to
+    // clap's own exit.
+    let raw: Vec<String> = std::env::args().collect();
+    let quiet_pre = raw.iter().any(|a| a == "-q" || a == "--quiet");
+    let lang_pre = raw
+        .iter()
+        .position(|a| a == "--lang")
+        .and_then(|i| raw.get(i + 1))
+        .cloned();
+    let lang_pre = Lang::resolve(lang_pre.as_deref());
+
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            banner::show(lang_pre, quiet_pre);
+            e.exit();
+        }
+    };
     let lang = Lang::resolve(cli.lang.as_deref());
     banner::show(lang, cli.quiet);
 

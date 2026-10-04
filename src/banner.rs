@@ -13,20 +13,26 @@
 //!   5. Below 80 columns, a single-line compact banner is shown instead of
 //!      the full ASCII art, so it doesn't wrap/break in narrow terminals,
 //!      tmux panes, or tiling layouts.
+//!   6. The banner is also shown ahead of `--help`/`-h` output and on a
+//!      bare invocation with no subcommand (see `main.rs`, which pre-scans
+//!      argv and calls `show()` before `Cli::try_parse()`'s early exit on
+//!      those paths — clap handles both internally and never returns to
+//!      the normal control flow otherwise).
 
 use crate::i18n::{tr, Lang};
 use std::io::IsTerminal;
 
 const FULL_ART: &str = r"
-                               ▀      ▄▀▀
-  ▄▄▄   ▄ ▄▄    ▄▄▄   ▄ ▄▄   ▄▄▄    ▄▄█▄▄  ▄   ▄
- ▀   █  █▀  █  █▀ ▀█  █▀  █    █      █    ▀▄ ▄▀
- ▄▀▀▀█  █   █  █   █  █   █    █      █     █▄█
- ▀▄▄▀█  █   █  ▀█▄█▀  █   █  ▄▄█▄▄    █     ▀█
-                                            ▄▀
-                                           ▀▀";
+                              ▀      ▄▀▀
+ ▄▄▄   ▄ ▄▄    ▄▄▄   ▄ ▄▄   ▄▄▄    ▄▄█▄▄  ▄   ▄
+▀   █  █▀  █  █▀ ▀█  █▀  █    █      █    ▀▄ ▄▀
+▄▀▀▀█  █   █  █   █  █   █    █      █     █▄█
+▀▄▄▀█  █   █  ▀█▄█▀  █   █  ▄▄█▄▄    █     ▀█
+                                           ▄▀
+                                          ▀▀";
 
 const MIN_WIDTH_FOR_ART: usize = 80;
+const MAX_RULE_WIDTH: usize = 70;
 
 /// Decides whether the banner should be shown at all, given explicit
 /// `--quiet`/`-q`. TTY detection is checked separately by the caller via
@@ -68,9 +74,10 @@ fn terminal_width() -> usize {
 }
 
 /// Prints the startup banner to stderr if the current context calls for it.
-/// Safe to call unconditionally at the top of `main()` — it no-ops for
-/// non-interactive output, `--quiet`, and narrow terminals (compact form
-/// instead).
+/// Safe to call unconditionally — it no-ops for non-interactive output,
+/// `--quiet`, and narrow terminals (compact form instead). Called both from
+/// the normal success path in `main()` and from the early-exit paths for
+/// `--help` and a bare invocation (see module docs).
 pub fn show(lang: Lang, quiet: bool) {
     let stderr_is_tty = std::io::stderr().is_terminal();
     if !should_show(quiet, stderr_is_tty) {
@@ -83,22 +90,35 @@ pub fn show(lang: Lang, quiet: bool) {
     if width < MIN_WIDTH_FOR_ART {
         print_compact(lang, color);
     } else {
-        print_full(lang, color);
+        print_full(lang, color, width);
     }
 }
 
-fn print_full(lang: Lang, color: bool) {
+fn print_full(lang: Lang, color: bool, width: usize) {
     let tagline = tr(
         lang,
-        "reversible, memory-only network anonymity hardening",
-        "hardening de anonimato en red, reversible y solo en memoria",
+        "Reversible, memory-only network anonymity hardening",
+        "Hardening de anonimato en red, reversible y solo en memoria",
     );
+    let rule_width = width.min(MAX_RULE_WIDTH);
+    let rule: String = "─".repeat(rule_width);
+
     if color {
         eprintln!("\x1b[1;36m{FULL_ART}\x1b[0m");
-        eprintln!("  \x1b[2m{tagline} — v{}\x1b[0m", env!("CARGO_PKG_VERSION"));
+        eprintln!("  \x1b[1m{tagline}\x1b[0m");
+        eprintln!(
+            "  \x1b[2mv{} · GPL-3.0 · github.com/grubberdubber/anonify\x1b[0m",
+            env!("CARGO_PKG_VERSION")
+        );
+        eprintln!("\x1b[2m{rule}\x1b[0m");
     } else {
         eprintln!("{FULL_ART}");
-        eprintln!("  {tagline} — v{}", env!("CARGO_PKG_VERSION"));
+        eprintln!("  {tagline}");
+        eprintln!(
+            "  v{} - GPL-3.0 - github.com/grubberdubber/anonify",
+            env!("CARGO_PKG_VERSION")
+        );
+        eprintln!("{rule}");
     }
     eprintln!();
 }
