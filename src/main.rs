@@ -1,3 +1,4 @@
+mod banner;
 mod i18n;
 mod modules;
 mod state;
@@ -20,6 +21,10 @@ struct Cli {
     /// Force a language instead of auto-detecting from the OS locale (en, es)
     #[arg(long, global = true)]
     lang: Option<String>,
+
+    /// Suppress the startup banner and decorative status output
+    #[arg(short, long, global = true)]
+    quiet: bool,
 
     #[command(subcommand)]
     cmd: Cmd,
@@ -200,6 +205,7 @@ fn check(lang: Lang) -> Result<()> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let lang = Lang::resolve(cli.lang.as_deref());
+    banner::show(lang, cli.quiet);
 
     if !matches!(cli.cmd, Cmd::Launch(_)) && !sys::is_root() {
         bail!(
