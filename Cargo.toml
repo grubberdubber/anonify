@@ -3,7 +3,7 @@ name = "anonify"
 version = "0.1.0"
 edition = "2021"
 description = "Hardening de anonimato temporal y reversible para Arch Linux"
-license = "GPL-3.0-or-later"
+license = "GPL-3.0-only"
 
 [dependencies]
 clap = { version = "=4.4.18", features = ["derive"] }

@@ -21,6 +21,7 @@ pub fn enable(st: &State) -> Result<()> {
   chain out {{
     type filter hook output priority 1; policy drop;
     oifname "lo" accept
+    ip daddr 127.0.0.0/8 accept
     oifname {{ "wg*", "proton*", "tun*" }} accept
 {ep}{tor}    udp dport 67 accept
   }}
