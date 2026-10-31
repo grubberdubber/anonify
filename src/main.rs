@@ -3,6 +3,7 @@ mod i18n;
 mod modules;
 mod state;
 mod sys;
+mod watchdog;
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
@@ -10,6 +11,7 @@ use i18n::{tr, Lang};
 use modules::{dns, hostname, ipv6, killswitch, launch, mac, sysctl, tor, vpn, Module};
 use state::State;
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +27,12 @@ struct Cli {
     /// Suppress the startup banner and decorative status output
     #[arg(short, long, global = true)]
     quiet: bool,
+
+    /// Safety net: automatically run `restore` after N seconds, no matter
+    /// what. Use this while testing modules that can cut your own network
+    /// (tor, dns, killswitch) so a mistake can't lock you out for good.
+    #[arg(long, global = true, value_name = "SECONDS")]
+    timeout: Option<u64>,
 
     #[command(subcommand)]
     cmd: Cmd,
@@ -108,6 +116,10 @@ fn enable(lang: Lang, mut mods: Vec<Module>, all: bool, conf: Option<PathBuf>) -
     }
     mods.sort();
     mods.dedup();
+    // Held for the whole function so a watchdog trip (Ctrl+C / SIGTERM /
+    // --timeout) running `disable()` on another thread can't read or write
+    // state.json while we're mid-sequence here.
+    let _lock = state::Lock::acquire()?;
     let mut st = State::load()?;
     for m in mods {
         if st.active.contains(&m) {
@@ -138,6 +150,9 @@ fn enable(lang: Lang, mut mods: Vec<Module>, all: bool, conf: Option<PathBuf>) -
 }
 
 fn disable(lang: Lang, mods: Vec<Module>) -> Result<()> {
+    // Same reasoning as in `enable()`: serialize against a concurrent
+    // watchdog-triggered restore.
+    let _lock = state::Lock::acquire()?;
     let mut st = State::load()?;
     let mut list: Vec<Module> = if mods.is_empty() {
         vec![
@@ -238,6 +253,40 @@ fn main() -> Result<()> {
             )
         );
     }
+    // Armed for every command that can leave network state half-applied if
+    // interrupted (enable/disable/restore). Status/check/launch don't touch
+    // system state, so Ctrl+C there can just use the default behavior.
+    if matches!(
+        cli.cmd,
+        Cmd::Enable { .. } | Cmd::Disable { .. } | Cmd::Restore
+    ) {
+        let timeout = cli.timeout.map(Duration::from_secs);
+        watchdog::arm(lang, timeout, move |trip| {
+            let reason = match trip {
+                watchdog::Trip::Signal => tr(lang, "interrupted", "interrumpido"),
+                watchdog::Trip::Timeout => tr(lang, "timeout reached", "tiempo límite alcanzado"),
+            };
+            eprintln!(
+                "\n[!] {reason} \u{2014} {}",
+                tr(lang, "running restore...", "ejecutando restore...")
+            );
+            // Blocks on the state lock until whatever module step is
+            // currently in flight on the main thread finishes — this can't
+            // preempt a blocking syscall mid-flight, only guarantee cleanup
+            // runs right after it. See module docs in watchdog.rs.
+            let _ = disable(lang, vec![]);
+            eprintln!(
+                "[\u{2713}] {}",
+                tr(
+                    lang,
+                    "restore complete, exiting",
+                    "restore completo, saliendo"
+                )
+            );
+            std::process::exit(130);
+        });
+    }
+
     match cli.cmd {
         Cmd::Enable {
             modules,
