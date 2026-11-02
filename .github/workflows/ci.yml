@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install smoke-test dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nftables
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy (pedantic, warnings are errors)
+        run: cargo clippy --all-targets -- -D warnings -W clippy::pedantic
+
+      - name: Tests
+        run: cargo test
+
+      - name: Release build
+        run: cargo build --release
+
+      - name: Namespace smoke test (when user namespaces are available)
+        run: |
+          if unshare -rn true 2>/dev/null; then
+            ./tests/namespace-smoke.sh
+          else
+            echo "::warning::user namespaces unavailable; skipping kernel smoke test"
+          fi
