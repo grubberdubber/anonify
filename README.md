@@ -26,9 +26,11 @@
 
 ## Overview
 
-`anonify` is a Rust command-line tool that applies temporary, reversible network-anonymity hardening on Linux. All state changes live in volatile memory (`/run/anonify`, kernel `sysctl` values, `nftables` tables, bind mounts) — nothing is written to persistent storage, and a reboot or `anonify restore` returns the machine to its exact original state.
+`anonify` is a Rust command-line tool that applies temporary, reversible network-anonymity hardening on Linux. Its own state lives in volatile memory (`/run/anonify`, kernel `sysctl` values, `nftables` tables, bind mounts) — it does not write secrets or activity history to persistent storage, and a reboot or `anonify restore` returns the machine to its original network configuration. Third-party tools that `anonify` invokes (for example `wg-quick` or NetworkManager) may touch system runtime state; `anonify` documents that and restores it on a best-effort basis.
 
 It exists because most "anonymity scripts" in circulation are ad-hoc shell scripts that silently fail halfway through, leak traffic over IPv6 or background DNS, or leave the firewall and network stack in a broken, half-applied state. `anonify` is built with real error handling, automatic rollback, and continuous drift detection (so it can tell you if something else on the system — NetworkManager, a daemon, etc. — reverted one of its changes behind its back).
+
+> **Scope and ethics.** `anonify` is a privacy and network-hardening tool, not an anti-forensics tool. It never deletes, truncates, redirects, or tampers with system logs, audit records, shell histories, file timestamps, or evidence. It does not disable auditing or hide activity. Features that would obstruct an investigation are out of scope and are rejected in review. See [AGENTS.md](AGENTS.md) and the [Legal & Disclaimer](#legal--disclaimer) section.
 
 ## Who this is for
 
@@ -48,16 +50,17 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 | `hostname`   | Sets an ephemeral, randomized hostname (`host-xxxxxxxx`).                                                                                           | Restores the original hostname.                                         |
 | `sysctl`     | Kernel-level network hardening: ignores ICMP echo, disables TCP timestamps, blocks ICMP redirects, restricts `kptr`/`bpf` exposure.                 | Restores each key's exact previous value.                               |
 | `ipv6`       | Disables IPv6 on all interfaces to eliminate IPv6 leak vectors.                                                                                     | Re-enables IPv6 with its previous value.                                |
-| `dns`        | Temporary RAM-backed bind mount over `/etc/resolv.conf`, pointed at a local resolver (e.g. `127.0.0.1:5353`).                                       | Unmounts `/etc/resolv.conf` immediately.                                |
-| `tor`        | Runs an isolated Tor instance plus a dedicated `nftables` table (`inet anonify_tor`) redirecting TCP and DNS traffic through it.                    | Tears down the `nftables` table and sends `SIGTERM` to the Tor process. |
-| `vpn`        | Brings up a WireGuard/ProtonVPN tunnel via `wg-quick`.                                                                                              | Runs `wg-quick down`.                                                   |
-| `killswitch` | Strict firewall rule allowing only loopback, VPN interfaces (`wg*`, `tun*`, `proton*`), and Tor daemon traffic. If the tunnel drops, nothing leaks. | Deletes the `inet anonify_ks` table.                                    |
+| `dns`        | Temporary RAM-backed bind mount over `/etc/resolv.conf`, pinned to `127.0.0.1` so Tor's DNSPort redirect handles resolution. Requires `tor`.       | Unmounts `/etc/resolv.conf` immediately.                                |
+| `tor`        | Fail-closed Tor setup: installs the redirecting/blocking `nftables` table **before** bootstrap, then runs an isolated Tor instance.                | Tears down the `nftables` table and stops the Tor process it owns.      |
+| `vpn`        | Brings up a WireGuard/ProtonVPN tunnel via `wg-quick`; resolves the endpoint to numeric IPv4/IPv6 addresses for the kill switch.                    | Runs `wg-quick down`.                                                   |
+| `killswitch` | Strict firewall allowing only loopback, DHCP, VPN interfaces (`wg*`, `tun*`, `proton*`), the resolved VPN endpoint, and Tor daemon traffic.         | Deletes the `inet anonify_ks` table.                                    |
+| `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN and kill-switch state. Public-IP checks go through Tor and are skipped if no anonymity layer is active. | Read-only; no changes.                                                  |
 
 ## Requirements & Installation
 
 ```bash
 # 1. System dependencies
-sudo pacman -S --needed rust tor nftables wireguard-tools iproute2 curl
+sudo pacman -S --needed rust tor nftables wireguard-tools openresolv iproute2 curl
 
 # 2. Clone and build in release mode
 git clone https://github.com/grubberdubber/anonify.git
@@ -86,6 +89,12 @@ sudo anonify enable mac tor
 sudo anonify enable vpn killswitch --vpn-conf ~/my-vpn/mullvad-es.conf
 ```
 
+`vpn` does not silently install `killswitch` for you (that would change the
+routes and firewall you explicitly asked for). If you enable `vpn` alone,
+anonify warns that traffic can escape outside the tunnel; add `killswitch` to
+the same command, as above. Disabling `tor` also disables `dns` first, because
+the temporary resolver depends on Tor's DNSPort.
+
 ### Check status and detect configuration drift
 
 ```bash
@@ -98,6 +107,18 @@ If NetworkManager or another daemon reverted your MAC or hostname in the backgro
 
 ```bash
 sudo anonify check
+```
+
+The check is fail-closed: it never makes a clear-net request to discover your public IP. If Tor is active it queries `check.torproject.org` through Tor's SOCKS port; otherwise it reports that the public-IP check was skipped. It exits non-zero when it detects an active leak.
+
+### Verify the build
+
+```bash
+cargo fmt --all --check
+cargo clippy --all-targets -- -D warnings -W clippy::pedantic
+cargo test
+# Low-level smoke tests inside user/mount/network/UTS namespaces (no host changes)
+./tests/namespace-smoke.sh
 ```
 
 ### Launch isolated applications (non-root)
@@ -128,24 +149,30 @@ export ANONIFY_LANG=es
 ## Roadmap
 
 - [ ] **Network-namespace sandboxing (netns / bubblewrap)**: isolate individual applications in their own ephemeral virtual interface instead of routing the whole system through Tor.
-- [ ] **OUI-aware MAC spoofing**: generate MACs using real vendor prefixes (Apple, Intel, Samsung) so captive portals and enterprise routers don't flag purely random addresses.
-- [ ] **Timezone & locale masking**: volatile bind-mount over `/etc/localtime` and sanitized locale environment variables.
-- [ ] **File metadata scrubber**: `anonify scrub <file>` to strip EXIF, timestamps, and geolocation data before sharing files.
+- [ ] **OUI-aware MAC spoofing**: generate MACs using safe vendor prefixes when a network rejects locally administered addresses.
+- [ ] **Timezone & locale masking for launched apps**: set `TZ`, `LANG`, and `LC_*` only in the child process environment; never alter the system clock or log timestamps.
+- [ ] **User-initiated metadata scrubber**: `anonify scrub --output <copy> <file>` to strip EXIF/geolocation from an explicit copy, leaving the original untouched.
 - [ ] **Multi-network support**: optional routing through I2P/Lokinet in addition to Tor.
 - [ ] **Ephemeral browser profiles**: launch LibreWolf/Mullvad Browser with a profile mounted on `/dev/shm` that is destroyed on exit.
+- [ ] **DNS leak matrix**: DoT/DoH local resolver mode and per-interface leak tests.
+
+> **Not on the roadmap, by policy:** log deletion, journald/audit suppression, timestamp manipulation, shell-history wiping, process/file hiding, forensic-tool blocking, or any “anti-forensic” cleanup. See [AGENTS.md](AGENTS.md).
 
 ## Contributing
 
-Found a bug, a network configuration this doesn't handle, or have an idea for a new module? Please [open an issue](../../issues). Well-structured, focused pull requests that fit the project's scope are welcome.
+Found a bug, a network configuration this doesn't handle, or an idea for a privacy module? Please [open an issue](../../issues). Well-structured, focused pull requests that fit the project's scope are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting: contributions that delete or tamper with logs, audit trails, timestamps, histories, or evidence are rejected.
 
 ## Legal & Disclaimer
 
 **anonify is provided for lawful use only** — personal privacy, authorized security research, and authorized red-team engagements. You are solely responsible for complying with the laws of your jurisdiction and the terms of any network, platform, or engagement you use this tool on. The author does not condone, and is not responsible for, any unlawful use of this software by any party.
 
+**No obstruction of justice.** `anonify` does not delete, modify, suppress, or fabricate logs, audit records, shell histories, file timestamps, or any other evidence. It does not disable auditing or hide activity. Do not use it to obstruct an investigation, destroy evidence, evade lawful process, or access networks without authorization. If you are subject to a legal preservation obligation, preserve the relevant records and seek legal advice; do not use this tool to alter them.
+
 This software is distributed **"AS IS", WITHOUT WARRANTY OF ANY KIND**, express or implied, as permitted under Section 15 of the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for the full text. In particular:
 
 - **No absolute anonymity.** No tool can guarantee total anonymity. Logging into an identified account, browser fingerprinting, and traffic-correlation attacks by well-resourced adversaries are outside this tool's threat model. For high-stakes anonymity needs, use hardened, purpose-built environments such as Tor Browser, Tails, or Whonix.
 - **Scope of protection.** This tool mitigates hardware-level (MAC), OS-level (hostname, sysctl), and packet-level (IPv6/DNS leaks, kill switch) identifiers. It does not protect against malware, endpoint compromise, or advanced traffic-correlation analysis.
+- **Third-party tools.** Modules may invoke system tools (`wg-quick`, NetworkManager, `tor`, `nft`, `ip`) that have their own effects and risks. `anonify` restores what it can, but you remain responsible for reviewing those tools and your system configuration.
 - **Data-integrity risk.** Operations that touch kernel memory state or live network configuration carry inherent risk (e.g., an abrupt power loss during a sensitive operation can leave the system or filesystem in an inconsistent state). Use on systems where that risk is acceptable, and keep backups.
 - **No liability.** To the maximum extent permitted by applicable law, the author(s) and contributors accept no liability for damages, data loss, legal consequences, or any other harm arising from the use, misuse, or inability to use this software.
 
