@@ -75,7 +75,12 @@ fn check_dns(st: &State, leaks: &mut Vec<String>, warnings: &mut Vec<String>) {
         let loopback =
             server == "localhost" || server.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
         if !loopback {
-            leaks.push(format!("DNS nameserver {server} is not loopback"));
+            // With no anonymity layer this is simply the system resolver; with
+            // Tor active, port 53 is redirected by nftables. Treat it as
+            // context, not a leak, so `check` is usable on a normal system.
+            warnings.push(format!(
+                "DNS nameserver {server} is not loopback; DNS depends on the network resolver or Tor redirection"
+            ));
         }
     }
     if st.active.contains(&Module::Dns) {
@@ -123,6 +128,10 @@ fn check_identity(st: &State, leaks: &mut Vec<String>) {
 fn check_tunnel(st: &State, leaks: &mut Vec<String>, warnings: &mut Vec<String>) {
     if st.active.contains(&Module::Vpn) && !vpn::holds(st) {
         leaks.push("VPN interface is missing or not a WireGuard interface".into());
+    }
+    if st.active.contains(&Module::Vpn) && !st.active.contains(&Module::Killswitch) {
+        warnings
+            .push("VPN is active without killswitch; traffic may escape outside the tunnel".into());
     }
     if st.active.contains(&Module::Killswitch) && !killswitch::holds(st) {
         leaks.push("kill switch table is missing or no longer fail-closed".into());
