@@ -29,7 +29,8 @@ All notable changes to this project are documented here. The format follows
 - `dns` detects its bind mount through `/proc/self/mountinfo`, refuses to
   overwrite foreign mounts, and is automatically disabled before `tor`.
 - `vpn` refuses to touch an existing interface, validates config permissions,
-  warns on hostname endpoints, and stores numeric endpoint addresses.
+  warns on hostname endpoints and `wg-quick` hook directives, and stores numeric
+  endpoint addresses.
 - `killswitch` allows only loopback, DHCP, tunnel interfaces, the resolved VPN
   endpoint (`IP` + UDP port), and the Tor UID.
 - `check` reports drift when the Tor or kill-switch table no longer keeps its
