@@ -1,7 +1,13 @@
+//! Registro de módulos de anonimato.
+//!
+//! Por política de proyecto no existen módulos de borrado/alteración de logs,
+//! auditoría, timestamps o evidencia. La lista de módulos es deliberadamente
+//! de privacidad de red y hardening reversible; ver `AGENTS.md`.
 use crate::i18n::{tr, Lang};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
+pub mod check;
 pub mod dns;
 pub mod hostname;
 pub mod ipv6;
@@ -21,23 +27,36 @@ pub enum Module {
     Ipv6,
     Hostname,
     Vpn,
-    Dns,
     Tor,
+    Dns,
     Killswitch,
 }
 
 impl Module {
+    /// Todos los módulos, en orden de activación.
+    pub const ALL: &'static [Module] = &[
+        Module::Mac,
+        Module::Sysctl,
+        Module::Ipv6,
+        Module::Hostname,
+        Module::Vpn,
+        Module::Tor,
+        Module::Dns,
+        Module::Killswitch,
+    ];
+
     /// Modules enabled by `--all` (vpn and killswitch are explicit opt-in).
+    /// Tor goes before DNS so the DNS module can require an active Tor stack.
     pub const DEFAULT_SET: &'static [Module] = &[
         Module::Mac,
         Module::Hostname,
         Module::Sysctl,
         Module::Ipv6,
-        Module::Dns,
         Module::Tor,
+        Module::Dns,
     ];
 
-    pub fn desc(&self, lang: Lang) -> &'static str {
+    pub fn desc(self, lang: Lang) -> &'static str {
         match self {
             Module::Mac => tr(
                 lang,
@@ -64,15 +83,15 @@ impl Module {
                 "WireGuard / Proton via wg-quick",
                 "WireGuard / Proton vía wg-quick",
             ),
-            Module::Dns => tr(
-                lang,
-                "temporary resolv.conf (bind mount)",
-                "resolv.conf temporal (bind mount)",
-            ),
             Module::Tor => tr(
                 lang,
                 "transparent Tor proxy + anti-leak firewall",
                 "proxy transparente Tor + firewall anti-fuga",
+            ),
+            Module::Dns => tr(
+                lang,
+                "temporary resolv.conf (requires Tor)",
+                "resolv.conf temporal (requiere Tor)",
             ),
             Module::Killswitch => tr(
                 lang,
