@@ -77,6 +77,31 @@ fn check_config_permissions(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn hook_keys(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter_map(|line| line.split_once('='))
+        .map(|(key, _)| key.trim())
+        .filter(|key| {
+            matches!(
+                key.to_ascii_lowercase().as_str(),
+                "preup" | "postup" | "predown" | "postdown" | "saveconfig"
+            )
+        })
+        .collect()
+}
+
+fn warn_about_hooks(conf: &Path, text: &str) {
+    let hooks = hook_keys(text);
+    if !hooks.is_empty() {
+        eprintln!(
+            "    aviso: {} contiene `{}`; wg-quick puede ejecutar comandos como root \
+             o reescribir el archivo. Revisa la configuración antes de continuar.",
+            conf.display(),
+            hooks.join("`, `")
+        );
+    }
+}
+
 fn warn_about_dns(conf: &Path, text: &str) {
     if !text.lines().any(|l| {
         l.split_once('=')
@@ -114,6 +139,7 @@ pub fn enable(st: &mut State, conf: Option<&Path>) -> Result<()> {
     let text = fs::read_to_string(&conf)?;
     let (addrs, port) = resolve_endpoint(&conf)?;
     warn_about_dns(&conf, &text);
+    warn_about_hooks(&conf, &text);
     if let Some(endpoint) = endpoint_value(&text) {
         if endpoint.parse::<SocketAddr>().is_err() {
             eprintln!(
@@ -221,5 +247,12 @@ mod tests {
     #[test]
     fn interface_name_is_file_stem() {
         assert_eq!(iface_name("/etc/wireguard/mullvad-es.conf"), "mullvad-es");
+    }
+
+    #[test]
+    fn detects_wg_quick_hooks_case_insensitively() {
+        assert!(hook_keys("[Interface]\nPostUp = echo hi\n").contains(&"PostUp"));
+        assert!(hook_keys("[Interface]\nsaveconfig=true\n").contains(&"saveconfig"));
+        assert!(hook_keys("[Interface]\nPrivateKey = x\n").is_empty());
     }
 }
