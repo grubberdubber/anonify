@@ -25,27 +25,32 @@ pub enum Trip {
 /// `on_trip` runs (once) on a background thread; it should perform a full
 /// restore and must not panic — nothing catches it if it does.
 pub fn arm(lang: Lang, timeout: Option<Duration>, on_trip: impl FnOnce(Trip) + Send + 'static) {
+    // SAFETY: an all-zero `sigset_t` is a valid empty signal set, and the
+    // `sigemptyset`/`sigaddset`/`pthread_sigmask` calls operate on that local
+    // set with valid pointers for the duration of the block.
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut set);
-        libc::sigaddset(&mut set, libc::SIGINT);
-        libc::sigaddset(&mut set, libc::SIGTERM);
+        libc::sigemptyset(&raw mut set);
+        libc::sigaddset(&raw mut set, libc::SIGINT);
+        libc::sigaddset(&raw mut set, libc::SIGTERM);
         // Block in this thread; new threads inherit the mask, so this
         // covers the whole process from here on.
-        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        libc::pthread_sigmask(libc::SIG_BLOCK, &raw const set, std::ptr::null_mut());
     }
 
     let (tx, rx) = mpsc::channel::<Trip>();
 
     let tx_sig = tx.clone();
     std::thread::spawn(move || {
+        // SAFETY: an all-zero `sigset_t` is a valid empty set; this thread
+        // blocks on `sigwait` with valid pointers to local storage.
         let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
         let mut sig: i32 = 0;
         unsafe {
-            libc::sigemptyset(&mut set);
-            libc::sigaddset(&mut set, libc::SIGINT);
-            libc::sigaddset(&mut set, libc::SIGTERM);
-            libc::sigwait(&set, &mut sig);
+            libc::sigemptyset(&raw mut set);
+            libc::sigaddset(&raw mut set, libc::SIGINT);
+            libc::sigaddset(&raw mut set, libc::SIGTERM);
+            libc::sigwait(&raw const set, &raw mut sig);
         }
         let _ = tx_sig.send(Trip::Signal);
     });

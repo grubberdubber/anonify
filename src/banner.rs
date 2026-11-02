@@ -8,7 +8,7 @@
 //!      interactive TTY (scripts, cron, `2>&1 | tee log`, CI). No flag is
 //!      required for that — it just does the right thing.
 //!   3. `--quiet` / `-q` suppresses it even on an interactive TTY.
-//!   4. `NO_COLOR` (https://no-color.org/) set to any value disables ANSI
+//!   4. `NO_COLOR` (<https://no-color.org/>) set to any value disables ANSI
 //!      color codes, falling back to plain text.
 //!   5. Below 80 columns, a single-line compact banner is shown instead of
 //!      the full ASCII art, so it doesn't wrap/break in narrow terminals,
@@ -45,6 +45,16 @@ fn colors_enabled() -> bool {
     std::env::var_os("NO_COLOR").is_none()
 }
 
+/// Mirrors `struct winsize` from `<termios.h>`; field order and types matter
+/// for the `TIOCGWINSZ` ioctl.
+#[repr(C)]
+struct WinSize {
+    row: u16,
+    col: u16,
+    xpixel: u16,
+    ypixel: u16,
+}
+
 fn terminal_width() -> usize {
     // Minimal, dependency-free column detection: respect $COLUMNS if the
     // shell exports it, otherwise query the kernel via TIOCGWINSZ on the
@@ -54,19 +64,13 @@ fn terminal_width() -> usize {
         return cols;
     }
 
-    #[repr(C)]
-    struct WinSize {
-        ws_row: u16,
-        ws_col: u16,
-        ws_xpixel: u16,
-        ws_ypixel: u16,
-    }
-
+    // SAFETY: `ws` is a valid, writable `winsize`-compatible struct and the
+    // ioctl only fills it in; fd 2 is the process's stderr.
     unsafe {
         let mut ws: WinSize = std::mem::zeroed();
         // TIOCGWINSZ = 0x5413 on Linux. STDERR_FILENO = 2.
-        if libc::ioctl(2, 0x5413, &mut ws as *mut WinSize) == 0 && ws.ws_col > 0 {
-            return ws.ws_col as usize;
+        if libc::ioctl(2, 0x5413, &raw mut ws) == 0 && ws.col > 0 {
+            return ws.col as usize;
         }
     }
 
