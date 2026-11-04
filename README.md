@@ -305,7 +305,7 @@ If you are conducting an authorized security assessment, ensure your engagement'
 
 ## Support This Project
 
-`anonify` is free software (GPLv3), built and maintained by one person, with no telemetry, no ads and no paid tier. Sponsorship pays for the parts that are hard to do alone:
+`anonify` is free software (GPLv3), built and maintained by one person, with no telemetry, no ads and no paid tier. Nothing here is behind a paywall, and nothing will be. Sponsorship pays for the parts that are hard to do alone:
 
 - **A real test matrix**: disposable VPS and router/firmware combinations to verify kill-switch, MAC and DHCP behavior on actual captive-portal and corporate networks, plus Tor bridges so `--tor-bridges` is tested against real DPI instead of a mock.
 - **Maintenance**: tracking kernel, `nftables`, Tor and NetworkManager changes *before* they break someone's setup mid-session.
@@ -315,7 +315,7 @@ Ways to help, cheapest first:
 
 - ⭐ **Star the repo** — it is the single biggest driver of visibility for a project like this.
 - 🐛 **Report your distro / NetworkManager / VPN combination** in [Issues](../../issues): those reports are what the compatibility matrix is built from.
-- 💜 **[Sponsor via GitHub Sponsors](https://github.com/sponsors/grubberdubber)** (one-off or monthly); other channels go in [FUNDING.yml](.github/FUNDING.yml).
+- 💜 **Sponsorship**: [GitHub Sponsors](https://github.com/sponsors/grubberdubber) is being set up (the button appears once the account is approved; channels are listed in [FUNDING.yml](.github/FUNDING.yml)). Until then, open an issue with `sponsorship` in the title and we can arrange a one-off or an invoice.
 - 🏢 **Organizations**: sponsorship with an invoice, or fund a specific roadmap item.
 
 Sponsorship never buys influence over scope. The legal and ethical limits in [AGENTS.md](AGENTS.md) are not for sale, and no funding changes the threat model.

@@ -122,7 +122,9 @@ Attach `docs/screenshot.png`; do not attach the banner alone (no information).
 - [ ] GitHub social preview uploaded (`.github/assets/social-preview.jpg`,
       1280×640 — Settings → General → Social preview).
 - [ ] Repository description and topics set; they drive GitHub search.
-- [ ] Sponsor button live (enroll at github.com/sponsors, then `FUNDING.yml`).
+- [ ] Sponsor button live: enroll at github.com/sponsors (needs a Stripe
+      account and tax details), then confirm the button renders. Until then the
+      README says sponsorship is being set up — do not claim a working link.
 - [ ] A pinned issue or Discussion titled "Compatibility reports" with a short
       template: distro, NetworkManager version, VPN/Tor setup, what broke.
 - [ ] Release tagged with the commit CI verified, so the badge and the code match.
