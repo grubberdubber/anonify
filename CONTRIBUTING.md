@@ -17,6 +17,11 @@ We reject, without exception, contributions that:
 
 If your idea requires any of the above, it is out of scope. Privacy-by-minimization is welcome; evidence tampering is not.
 
+New modules and cross-cutting changes must pass the admission gate in
+[AGENTS.md](AGENTS.md#3-procedimiento-de-admisión-gate-obligatorio) (threat
+model, data touched, reversibility, fail-closed, persistence, legal impact,
+tests). Decisions already settled there are not re-litigated in review.
+
 ## Development setup
 
 ```bash
