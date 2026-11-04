@@ -60,7 +60,7 @@ Si una propuesta de módulo requiere cualquiera de esas acciones, **debe rechaza
 
 ## Módulos permitidos y roadmap
 
-**Core actual:** `mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor`, `vpn`, `killswitch`, `check`, `launch`.
+**Core actual:** `mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor`, `vpn`, `killswitch`, `check`, `launch`, y los comandos `rotate` (re-randomiza MAC/hostname sin perder los originales) y `watch` (vigilancia de deriva con `--restore` opcional). `status`/`check` aceptan `--json` para integración; ningún log del sistema se lee ni se escribe en ese camino.
 
 **Expansión aceptada (con revisión legal y de seguridad):**
 

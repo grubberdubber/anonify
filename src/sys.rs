@@ -61,9 +61,13 @@ pub fn have(prog: &str) -> bool {
     })
 }
 
-pub fn is_root() -> bool {
+pub fn euid() -> u32 {
     // SAFETY: `geteuid` no toma punteros y no puede fallar.
-    unsafe { libc::geteuid() == 0 }
+    unsafe { libc::geteuid() }
+}
+
+pub fn is_root() -> bool {
+    euid() == 0
 }
 
 pub fn read_trim(path: &str) -> Result<String> {

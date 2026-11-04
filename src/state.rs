@@ -29,6 +29,10 @@ pub struct State {
     pub macs: BTreeMap<String, String>,
     #[serde(default)]
     pub mac_dirty: BTreeMap<String, String>,
+    /// Política de MAC elegida (`local`, `random`, `apple`...), para que
+    /// `anonify rotate` genere direcciones con el mismo criterio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac_vendor: Option<String>,
     pub hostname: Option<String>,
     #[serde(default)]
     pub hostname_applied: Option<String>,
@@ -114,10 +118,17 @@ impl State {
             .parent()
             .context("la ruta de estado no tiene directorio padre")?;
         fs::create_dir_all(parent)?;
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o755))?;
+        // No se re-escriben los permisos del directorio en cada guardado: si
+        // el operador los endureció (p. ej. 0750), anonify no debe aflojarlos
+        // por su cuenta. El secreto real (`state.json`) sí queda en 0600.
 
         let tmp = temp_path(path);
-        let json = serde_json::to_vec_pretty(self).context("serializando el estado")?;
+        // The serialized state holds the original MAC/hostname; wipe the buffer
+        // on every exit path (including write/rename errors) instead of leaving
+        // a copy of it in freed memory.
+        let json = zeroize::Zeroizing::new(
+            serde_json::to_vec_pretty(self).context("serializando el estado")?,
+        );
         {
             let mut f = OpenOptions::new()
                 .write(true)

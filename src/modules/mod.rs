@@ -4,9 +4,11 @@
 //! auditoría, timestamps o evidencia. La lista de módulos es deliberadamente
 //! de privacidad de red y hardening reversible; ver `AGENTS.md`.
 use crate::i18n::{tr, Lang};
+use crate::state::State;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
+pub mod bwrap;
 pub mod check;
 pub mod dns;
 pub mod hostname;
@@ -55,6 +57,22 @@ impl Module {
         Module::Tor,
         Module::Dns,
     ];
+
+    /// Checks against the REAL system state (not just the saved state) that
+    /// the module is still applied. Shared by `status`, `check`, `watch` and
+    /// the post-enable settle check.
+    pub fn holds(self, st: &State) -> bool {
+        match self {
+            Module::Mac => mac::holds(st),
+            Module::Hostname => hostname::holds(st),
+            Module::Sysctl => sysctl::holds(sysctl::HARDEN),
+            Module::Ipv6 => ipv6::holds(),
+            Module::Vpn => vpn::holds(st),
+            Module::Dns => dns::holds(st),
+            Module::Tor => tor::alive(),
+            Module::Killswitch => killswitch::holds(st),
+        }
+    }
 
     pub fn desc(self, lang: Lang) -> &'static str {
         match self {

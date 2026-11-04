@@ -70,6 +70,7 @@ fn rules(uid: u32) -> String {
     type filter hook input priority 0; policy drop;
     iifname "lo" accept
     ct state established,related accept
+    udp sport 67 udp dport 68 accept
   }}
 }}
 "#
@@ -374,6 +375,15 @@ mod tests {
         assert!(r.contains("meta l4proto tcp redirect to :9040"));
         assert!(r.contains("type filter hook output priority 0; policy drop"));
         assert!(r.contains("meta nfproto ipv6 drop"));
+    }
+
+    #[test]
+    fn dhcp_replies_are_allowed_through_the_input_chain() {
+        // DHCP OFFER/ACK llega como broadcast de origen 67 -> 68 y no figura
+        // como `established`; sin esta regla la renovación de lease se pierde
+        // y la red muere cuando expira la concesión.
+        let r = rules(998);
+        assert!(r.contains("udp sport 67 udp dport 68 accept"));
     }
 
     #[test]

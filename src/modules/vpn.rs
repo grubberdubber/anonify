@@ -7,7 +7,7 @@
 //! `wg-quick` es una herramienta de terceros: puede tocar rutas, DNS y
 //! `sysctl` runtime. anonify documenta ese efecto y ejecuta `wg-quick down` al
 //! restaurar; no modifica perfiles persistentes de `NetworkManager`.
-use crate::{state::State, sys};
+use crate::{mem, state::State, sys};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
@@ -136,11 +136,14 @@ pub fn enable(st: &mut State, conf: Option<&Path>) -> Result<()> {
         );
     }
     check_config_permissions(&conf)?;
-    let text = fs::read_to_string(&conf)?;
+    // The file holds the WireGuard private key: keep it in a buffer that is
+    // zeroized on drop (and mlocked best-effort) instead of a plain `String`.
+    let secret = mem::SecretBuf::read(&conf)?;
+    let text = secret.as_str()?;
     let (addrs, port) = resolve_endpoint(&conf)?;
-    warn_about_dns(&conf, &text);
-    warn_about_hooks(&conf, &text);
-    if let Some(endpoint) = endpoint_value(&text) {
+    warn_about_dns(&conf, text);
+    warn_about_hooks(&conf, text);
+    if let Some(endpoint) = endpoint_value(text) {
         if endpoint.parse::<SocketAddr>().is_err() {
             eprintln!(
                 "    aviso: Endpoint `{endpoint}` no es una IP literal; resolverlo ahora \

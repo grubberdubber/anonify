@@ -4,13 +4,20 @@
 //! hace peticiones a Internet en claro para “descubrir” la IP pública. La
 //! comprobación de circuito Tor usa el SOCKS local (`--socks5-hostname`), de
 //! modo que también la resolución DNS ocurre dentro de Tor.
+//!
+//! `--json` imprime un objeto estable en stdout para integrarlo desde scripts;
+//! los mismos datos se muestran en texto cuando no se pide JSON. Las líneas
+//! informativas (IP de salida, comprobaciones omitidas) van a `notes`, nunca a
+//! `leaks`: una comprobación omitida no es una fuga demostrada.
 use crate::{
     i18n::{tr, Lang},
+    mem,
     modules::{dns, hostname, ipv6, killswitch, mac, sysctl, tor, vpn, Module},
     state::State,
     sys,
 };
 use anyhow::{bail, Result};
+use serde::Serialize;
 use std::fs;
 use std::net::IpAddr;
 
@@ -125,6 +132,13 @@ fn check_identity(st: &State, leaks: &mut Vec<String>) {
     }
 }
 
+/// Swap is not a network leak, but it is a privacy one: tmpfs pages (and
+/// therefore `/run/anonify` with the original MAC/hostname) can be written to
+/// an unencrypted swap device. Read-only audit; nothing is disabled.
+fn check_memory(warnings: &mut Vec<String>) {
+    warnings.extend(mem::swap_warnings());
+}
+
 fn check_tunnel(st: &State, leaks: &mut Vec<String>, warnings: &mut Vec<String>) {
     if st.active.contains(&Module::Vpn) && !vpn::holds(st) {
         leaks.push("VPN interface is missing or not a WireGuard interface".into());
@@ -146,15 +160,21 @@ fn check_tunnel(st: &State, leaks: &mut Vec<String>, warnings: &mut Vec<String>)
     }
 }
 
-fn check_tor(st: &State, lang: Lang, leaks: &mut Vec<String>, warnings: &mut Vec<String>) {
+fn check_tor(
+    st: &State,
+    lang: Lang,
+    leaks: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+    notes: &mut Vec<String>,
+) {
     if !st.active.contains(&Module::Tor) {
-        println!(
-            "{}",
+        notes.push(
             tr(
                 lang,
                 "public IP check skipped: no Tor session (refusing a clear-net request)",
-                "comprobación de IP pública omitida: no hay sesión Tor (no se hace una petición en claro)"
+                "comprobación de IP pública omitida: no hay sesión Tor (no se hace una petición en claro)",
             )
+            .to_string(),
         );
         return;
     }
@@ -167,11 +187,11 @@ fn check_tor(st: &State, lang: Lang, leaks: &mut Vec<String>, warnings: &mut Vec
         return;
     }
     match tor_public_ip() {
-        Ok((true, ip)) => println!(
+        Ok((true, ip)) => notes.push(format!(
             "{}: {}",
             tr(lang, "Tor exit IP", "IP de salida Tor"),
             ip.as_deref().unwrap_or("?")
-        ),
+        )),
         Ok((false, ip)) => leaks.push(format!(
             "check.torproject.org says this is not Tor (IP: {})",
             ip.as_deref().unwrap_or("?")
@@ -180,46 +200,30 @@ fn check_tor(st: &State, lang: Lang, leaks: &mut Vec<String>, warnings: &mut Vec
     }
 }
 
-fn report(lang: Lang, leaks: &[String], warnings: &[String]) -> Result<()> {
-    for warning in warnings {
-        eprintln!("[!] {warning}");
-    }
-    if leaks.is_empty() {
-        println!(
-            "[\u{2713}] {}",
-            tr(lang, "no leaks detected", "no se detectaron fugas")
-        );
-        return Ok(());
-    }
-    for leak in leaks {
-        eprintln!("[\u{2717}] {leak}");
-    }
-    bail!(
-        "{} {}",
-        leaks.len(),
-        tr(lang, "leak(s) detected", "fuga(s) detectada(s)")
-    )
+/// Resultado serializable de `anonify check --json`. El orden de los campos y
+/// la forma (`active`, `pending`, `leaks`, `warnings`, `notes`, `ok`) son
+/// estables: pensados para que un script no tenga que parsear texto.
+#[derive(Serialize)]
+struct Report {
+    active: Vec<String>,
+    pending: Vec<String>,
+    leaks: Vec<String>,
+    warnings: Vec<String>,
+    notes: Vec<String>,
+    ok: bool,
 }
 
-pub fn run(lang: Lang) -> Result<()> {
+fn module_names<'a>(mods: impl Iterator<Item = &'a Module>) -> Vec<String> {
+    mods.map(|m| format!("{m:?}").to_lowercase()).collect()
+}
+
+pub fn run(lang: Lang, json: bool) -> Result<()> {
     let st = State::load()?;
     let mut leaks: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    let mut notes: Vec<String> = Vec::new();
 
-    let active: Vec<String> = st
-        .active
-        .iter()
-        .map(|m| format!("{m:?}").to_lowercase())
-        .collect();
-    println!(
-        "{}: {}",
-        tr(lang, "active modules", "módulos activos"),
-        if active.is_empty() {
-            tr(lang, "none", "ninguno").to_string()
-        } else {
-            active.join(", ")
-        }
-    );
+    let active = module_names(st.active.iter());
     for m in &st.pending {
         leaks.push(format!(
             "module {m:?} has pending cleanup; run `anonify restore`"
@@ -229,8 +233,55 @@ pub fn run(lang: Lang) -> Result<()> {
     check_dns(&st, &mut leaks, &mut warnings);
     check_ipv6(&st, &mut leaks, &mut warnings);
     check_identity(&st, &mut leaks);
+    check_memory(&mut warnings);
     check_tunnel(&st, &mut leaks, &mut warnings);
-    check_tor(&st, lang, &mut leaks, &mut warnings);
+    check_tor(&st, lang, &mut leaks, &mut warnings, &mut notes);
 
-    report(lang, &leaks, &warnings)
+    let report = Report {
+        active: active.clone(),
+        pending: module_names(st.pending.iter()),
+        leaks: leaks.clone(),
+        warnings: warnings.clone(),
+        notes: notes.clone(),
+        ok: leaks.is_empty(),
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "{}: {}",
+            tr(lang, "active modules", "módulos activos"),
+            if active.is_empty() {
+                tr(lang, "none", "ninguno").to_string()
+            } else {
+                active.join(", ")
+            }
+        );
+        for note in &notes {
+            println!("[*] {note}");
+        }
+        for warning in &warnings {
+            eprintln!("[!] {warning}");
+        }
+        if leaks.is_empty() {
+            println!(
+                "[\u{2713}] {}",
+                tr(lang, "no leaks detected", "no se detectaron fugas")
+            );
+        } else {
+            for leak in &leaks {
+                eprintln!("[\u{2717}] {leak}");
+            }
+        }
+    }
+
+    if !leaks.is_empty() {
+        bail!(
+            "{} {}",
+            leaks.len(),
+            tr(lang, "leak(s) detected", "fuga(s) detectada(s)")
+        );
+    }
+    Ok(())
 }

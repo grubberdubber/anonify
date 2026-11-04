@@ -1,8 +1,10 @@
 mod banner;
 mod i18n;
+mod mem;
 mod modules;
 mod state;
 mod sys;
+mod watch;
 mod watchdog;
 
 use anyhow::{bail, Result};
@@ -48,22 +50,81 @@ enum Cmd {
         /// `WireGuard` config for the `vpn` module
         #[arg(long)]
         vpn_conf: Option<PathBuf>,
+        /// MAC policy for the `mac` module: local (default), random vendor,
+        /// or a specific OUI family (intel, apple, cisco, dell, samsung,
+        /// tp-link, realtek, raspberry)
+        #[arg(long, value_enum, value_name = "VENDOR")]
+        mac_vendor: Option<mac::Vendor>,
     },
     /// Disable modules (no arguments: all active ones)
     Disable { modules: Vec<Module> },
     /// Revert everything to its original state
     Restore,
+    /// Re-randomize the MAC addresses and hostname of the active `mac` and
+    /// `hostname` modules without touching the saved originals
+    Rotate,
     /// Show active modules and detect drift
-    Status,
+    Status {
+        /// Machine-readable JSON on stdout (stable field names)
+        #[arg(long)]
+        json: bool,
+    },
     /// Fail-closed leak checks (no clear-net requests)
-    Check,
+    Check {
+        /// Machine-readable JSON on stdout (stable field names)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Watch for configuration drift and optionally restore on the first hit
+    Watch(WatchArgs),
     /// Launch apps (`VirtualBox`, `Proton VPN`, or an arbitrary command)
+    /// with a sanitized environment and dropped privileges
+    Launch(LaunchArgs),
+}
+
+#[derive(clap::Args)]
+struct WatchArgs {
+    /// Seconds between checks (minimum 1)
+    #[arg(long, default_value_t = 10, value_name = "SECONDS")]
+    interval: u64,
+    /// Run a full restore and exit on the first drift
+    #[arg(long)]
+    restore: bool,
+    /// Check once and exit (status 1 when there is drift)
+    #[arg(long)]
+    once: bool,
+}
+
+#[derive(clap::Args)]
+struct LaunchArgs {
+    /// Timezone for the launched app only (TZ); never touches the system clock
+    #[arg(long, default_value = "UTC", value_name = "ZONE")]
+    tz: String,
+    /// Locale for the launched app only (`LANG`/`LC_ALL`)
+    #[arg(long, default_value = "C.UTF-8", value_name = "LOCALE")]
+    lang: String,
+    /// Skip environment masking and capability hardening (still never root under sudo)
+    #[arg(long)]
+    no_sandbox: bool,
+    /// Run inside a bubblewrap sandbox: read-only /usr and /etc, private /tmp
+    /// and HOME, own hostname, and no network unless --allow-net
+    #[arg(long)]
+    isolate: bool,
+    /// Keep host network access inside the sandbox (default: offline)
+    #[arg(long)]
+    allow_net: bool,
+    /// Hostname inside the sandbox (default: random `host-xxxxxxxx`)
+    #[arg(long, value_name = "NAME")]
+    hostname: Option<String>,
+    /// Bind this directory read-write as HOME instead of an empty tmpfs
+    #[arg(long, value_name = "PATH")]
+    home: Option<PathBuf>,
     #[command(subcommand)]
-    Launch(Launch),
+    action: LaunchAction,
 }
 
 #[derive(Subcommand)]
-enum Launch {
+enum LaunchAction {
     Vbox {
         vm: Option<String>,
     },
@@ -74,9 +135,73 @@ enum Launch {
     },
 }
 
-fn activate(m: Module, st: &mut State, conf: Option<&Path>) -> Result<()> {
+/// Best-effort: keep this process out of swap. Not a system change and not
+/// fatal if the kernel refuses (for example, a low `RLIMIT_MEMLOCK`).
+fn lock_memory(lang: Lang) {
+    if let Err(e) = mem::lock_process() {
+        eprintln!(
+            "[!] {}: {e:#}",
+            tr(
+                lang,
+                "could not lock memory pages in RAM",
+                "no se pudo fijar la memoria del proceso en RAM"
+            )
+        );
+    }
+}
+
+fn run_launch(lang: Lang, args: LaunchArgs) -> Result<()> {
+    if !args.isolate && (args.allow_net || args.hostname.is_some() || args.home.is_some()) {
+        bail!(
+            "{}",
+            tr(
+                lang,
+                "--allow-net, --hostname and --home only make sense together with --isolate",
+                "--allow-net, --hostname y --home solo tienen sentido junto a --isolate"
+            )
+        );
+    }
+    let sandbox = launch::Sandbox {
+        tz: args.tz,
+        lang: args.lang,
+        enabled: !args.no_sandbox,
+    };
+    // `--allow-net` entrega la red del host tal cual: si no hay una capa de
+    // anonimato activa, la app sale en claro. Aviso, no bloqueo: puede ser
+    // intencionado (probar algo local), pero no debe pasar desapercibido.
+    if args.isolate && args.allow_net {
+        let protected = State::load().is_ok_and(|st| {
+            [Module::Tor, Module::Vpn, Module::Killswitch]
+                .iter()
+                .any(|m| st.active.contains(m))
+        });
+        if !protected {
+            eprintln!(
+                "[!] {}",
+                tr(
+                    lang,
+                    "--allow-net gives the sandbox your real network with no tor/vpn/killswitch active: the app will leak your IP",
+                    "--allow-net le da al sandbox tu red real sin tor/vpn/killswitch activos: la app filtrará tu IP"
+                )
+            );
+        }
+    }
+    let isolate = args.isolate.then(|| launch::Isolate {
+        net: args.allow_net,
+        hostname: args.hostname.clone(),
+        home: args.home.clone(),
+    });
+    let iso = isolate.as_ref();
+    match args.action {
+        LaunchAction::Vbox { vm } => launch::vbox(vm.as_deref(), &sandbox, iso),
+        LaunchAction::Proton => launch::proton(&sandbox, iso),
+        LaunchAction::Exec { cmd } => launch::spawn(&cmd[0], &cmd[1..], &sandbox, iso),
+    }
+}
+
+fn activate(m: Module, st: &mut State, conf: Option<&Path>, vendor: mac::Vendor) -> Result<()> {
     match m {
-        Module::Mac => mac::enable(st),
+        Module::Mac => mac::enable(st, vendor),
         Module::Hostname => hostname::enable(st),
         Module::Sysctl => sysctl::apply(st, sysctl::HARDEN),
         Module::Ipv6 => ipv6::enable(st),
@@ -163,7 +288,13 @@ fn rollback(st: &mut State, mods: &[Module]) -> Vec<String> {
     errors
 }
 
-fn enable(lang: Lang, mut mods: Vec<Module>, all: bool, conf: Option<&Path>) -> Result<()> {
+fn enable(
+    lang: Lang,
+    mut mods: Vec<Module>,
+    all: bool,
+    conf: Option<&Path>,
+    vendor: mac::Vendor,
+) -> Result<()> {
     if all {
         mods.extend_from_slice(Module::DEFAULT_SET);
     }
@@ -198,7 +329,7 @@ fn enable(lang: Lang, mut mods: Vec<Module>, all: bool, conf: Option<&Path>) -> 
             tr(lang, "enabling", "activando"),
             m.desc(lang)
         );
-        if let Err(e) = activate(m, &mut st, conf) {
+        if let Err(e) = activate(m, &mut st, conf, vendor) {
             // The failed module may have left partial state; clean it too.
             let mut to_rollback = activated_now.clone();
             to_rollback.push(m);
@@ -361,17 +492,66 @@ fn disable(lang: Lang, mods: Vec<Module>) -> Result<()> {
     Ok(())
 }
 
-fn check(lang: Lang) -> Result<()> {
-    check::run(lang)
+/// Re-randomizes the identities of the active `mac`/`hostname` modules
+/// without losing the saved originals, so `restore` still works.
+///
+/// Useful between sessions on the same network (longer-lived observers can
+/// correlate a MAC or hostname over time). Only volatile identifier state is
+/// touched; nothing is written to disk.
+fn rotate(lang: Lang) -> Result<()> {
+    let _lock = state::Lock::acquire()?;
+    let mut st = State::load()?;
+    let rotate_mac = st.active.contains(&Module::Mac);
+    let rotate_hostname = st.active.contains(&Module::Hostname);
+    if !rotate_mac && !rotate_hostname {
+        bail!(
+            "{}",
+            tr(
+                lang,
+                "nothing to rotate: enable `mac` or `hostname` first",
+                "nada que rotar: activa `mac` o `hostname` primero"
+            )
+        );
+    }
+    if rotate_mac {
+        // Misma política que en `enable mac --mac-vendor`; el estado viejo
+        // (sin el campo) cae en `local`.
+        let vendor = st
+            .mac_vendor
+            .as_deref()
+            .and_then(mac::Vendor::parse)
+            .unwrap_or_default();
+        println!(
+            "[*] {}",
+            tr(lang, "rotating MAC addresses", "rotando direcciones MAC")
+        );
+        mac::enable(&mut st, vendor)?;
+        st.save()?;
+    }
+    if rotate_hostname {
+        println!("[*] {}", tr(lang, "rotating hostname", "rotando hostname"));
+        hostname::enable(&mut st)?;
+        st.save()?;
+    }
+    println!(
+        "[\u{2713}] {}",
+        tr(lang, "identities rotated", "identidades rotadas")
+    );
+    Ok(())
 }
 
-fn main() -> Result<()> {
-    // clap handles `--help`/`-h`, `--version`, and a missing/invalid
-    // subcommand internally and exits before ever returning a `Cli` value.
-    // To still show the banner on those paths (bare `anonify`, `anonify -h`),
-    // we pre-scan the raw args for `--quiet`/`-q` and `--lang` — the only
-    // flags the banner needs — and print it ourselves before handing off to
-    // clap's own exit.
+fn check(lang: Lang, json: bool) -> Result<()> {
+    check::run(lang, json)
+}
+
+/// Parses argv, showing the banner even on clap's early-exit paths.
+///
+/// clap handles `--help`/`-h`, `--version`, and a missing/invalid subcommand
+/// internally and exits before ever returning a `Cli` value. To still show the
+/// banner there (bare `anonify`, `anonify -h`), we pre-scan the raw args for
+/// `--quiet`/`-q` and `--lang` — the only flags the banner needs — and print
+/// it ourselves before handing off to clap's own exit.
+fn parse_cli() -> Cli {
     let raw: Vec<String> = std::env::args().collect();
     let quiet_pre = raw.iter().any(|a| a == "-q" || a == "--quiet");
     let lang_pre = raw
@@ -387,15 +567,67 @@ fn main() -> Result<()> {
         });
     let lang_pre = Lang::resolve(lang_pre.as_deref());
 
-    let cli = match Cli::try_parse() {
+    match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
             banner::show(lang_pre, quiet_pre);
             e.exit();
         }
-    };
+    }
+}
+
+/// Armed for every command that can leave network state half-applied if
+/// interrupted (enable/disable/restore). Status/check/watch/launch don't
+/// change state on their own, so Ctrl+C there can use the default behavior.
+fn arm_safety_net(lang: Lang, timeout: Option<u64>, cmd: &Cmd) {
+    if !matches!(
+        cmd,
+        Cmd::Enable { .. } | Cmd::Disable { .. } | Cmd::Rotate | Cmd::Restore
+    ) {
+        return;
+    }
+    let timeout = timeout.map(Duration::from_secs);
+    watchdog::arm(lang, timeout, move |trip| {
+        let reason = match trip {
+            watchdog::Trip::Signal => tr(lang, "interrupted", "interrumpido"),
+            watchdog::Trip::Timeout => tr(lang, "timeout reached", "tiempo límite alcanzado"),
+        };
+        eprintln!(
+            "\n[!] {reason} \u{2014} {}",
+            tr(lang, "running restore...", "ejecutando restore...")
+        );
+        // Blocks on the state lock until whatever module step is currently in
+        // flight on the main thread finishes — this can't preempt a blocking
+        // syscall mid-flight, only guarantee cleanup runs right after it. See
+        // module docs in watchdog.rs.
+        match disable(lang, vec![]) {
+            Ok(()) => eprintln!(
+                "[\u{2713}] {}",
+                tr(
+                    lang,
+                    "restore complete, exiting",
+                    "restore completo, saliendo"
+                )
+            ),
+            Err(e) => eprintln!(
+                "[\u{2717}] {}: {e:#}",
+                tr(
+                    lang,
+                    "restore incomplete, inspect the system",
+                    "restore incompleto, inspecciona el sistema"
+                )
+            ),
+        }
+        std::process::exit(130);
+    });
+}
+
+fn main() -> Result<()> {
+    let cli = parse_cli();
     let lang = Lang::resolve(cli.lang.as_deref());
     banner::show(lang, cli.quiet);
+
+    lock_memory(lang);
 
     if !matches!(cli.cmd, Cmd::Launch(_)) && !sys::is_root() {
         bail!(
@@ -407,59 +639,50 @@ fn main() -> Result<()> {
             )
         );
     }
-    // Armed for every command that can leave network state half-applied if
-    // interrupted (enable/disable/restore). Status/check/launch don't touch
-    // system state, so Ctrl+C there can just use the default behavior.
-    if matches!(
-        cli.cmd,
-        Cmd::Enable { .. } | Cmd::Disable { .. } | Cmd::Restore
-    ) {
-        let timeout = cli.timeout.map(Duration::from_secs);
-        watchdog::arm(lang, timeout, move |trip| {
-            let reason = match trip {
-                watchdog::Trip::Signal => tr(lang, "interrupted", "interrumpido"),
-                watchdog::Trip::Timeout => tr(lang, "timeout reached", "tiempo límite alcanzado"),
-            };
-            eprintln!(
-                "\n[!] {reason} \u{2014} {}",
-                tr(lang, "running restore...", "ejecutando restore...")
-            );
-            // Blocks on the state lock until whatever module step is
-            // currently in flight on the main thread finishes — this can't
-            // preempt a blocking syscall mid-flight, only guarantee cleanup
-            // runs right after it. See module docs in watchdog.rs.
-            match disable(lang, vec![]) {
-                Ok(()) => eprintln!(
-                    "[\u{2713}] {}",
-                    tr(
-                        lang,
-                        "restore complete, exiting",
-                        "restore completo, saliendo"
-                    )
-                ),
-                Err(e) => eprintln!(
-                    "[\u{2717}] {}: {e:#}",
-                    tr(
-                        lang,
-                        "restore incomplete, inspect the system",
-                        "restore incompleto, inspecciona el sistema"
-                    )
-                ),
-            }
-            std::process::exit(130);
-        });
-    }
+    arm_safety_net(lang, cli.timeout, &cli.cmd);
+    dispatch(cli.cmd, lang)
+}
 
-    match cli.cmd {
+fn dispatch(cmd: Cmd, lang: Lang) -> Result<()> {
+    match cmd {
         Cmd::Enable {
             modules,
             all,
             vpn_conf,
+            mac_vendor,
         } => {
-            enable(lang, modules, all, vpn_conf.as_deref())?;
+            let wants = |m: Module| all || modules.contains(&m);
+            if mac_vendor.is_some() && !wants(Module::Mac) {
+                eprintln!(
+                    "[!] {}",
+                    tr(
+                        lang,
+                        "--mac-vendor is ignored because the mac module is not being enabled",
+                        "--mac-vendor se ignora porque el módulo mac no se está activando"
+                    )
+                );
+            }
+            if vpn_conf.is_some() && !wants(Module::Vpn) {
+                eprintln!(
+                    "[!] {}",
+                    tr(
+                        lang,
+                        "--vpn-conf is ignored because the vpn module is not being enabled",
+                        "--vpn-conf se ignora porque el módulo vpn no se está activando"
+                    )
+                );
+            }
+            enable(
+                lang,
+                modules,
+                all,
+                vpn_conf.as_deref(),
+                mac_vendor.unwrap_or_default(),
+            )?;
             settle_check(lang)
         }
         Cmd::Disable { modules } => disable(lang, modules),
+        Cmd::Rotate => rotate(lang),
         Cmd::Restore => {
             disable(lang, vec![])?;
             println!(
@@ -472,25 +695,18 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Cmd::Status => status(lang),
-        Cmd::Check => check(lang),
-        Cmd::Launch(Launch::Vbox { vm }) => launch::vbox(vm.as_deref()),
-        Cmd::Launch(Launch::Proton) => launch::proton(),
-        Cmd::Launch(Launch::Exec { cmd }) => launch::spawn(&cmd[0], &cmd[1..]),
-    }
-}
-
-/// Checks against the REAL system state (not the saved state) that the module is still applied.
-fn holds(m: Module, st: &State) -> bool {
-    match m {
-        Module::Mac => mac::holds(st),
-        Module::Hostname => hostname::holds(st),
-        Module::Sysctl => sysctl::holds(sysctl::HARDEN),
-        Module::Ipv6 => ipv6::holds(),
-        Module::Vpn => vpn::holds(st),
-        Module::Dns => dns::holds(st),
-        Module::Tor => tor::alive(),
-        Module::Killswitch => killswitch::holds(st),
+        Cmd::Status { json } => status(lang, json),
+        Cmd::Check { json } => check(lang, json),
+        Cmd::Watch(args) => watch::run(
+            lang,
+            &watch::Options {
+                interval: args.interval,
+                restore: args.restore,
+                once: args.once,
+            },
+            || disable(lang, vec![]),
+        ),
+        Cmd::Launch(args) => run_launch(lang, args),
     }
 }
 
@@ -508,7 +724,7 @@ fn settle_check(lang: Lang) -> Result<()> {
     let lost: Vec<String> = st
         .active
         .iter()
-        .filter(|m| !holds(**m, &st))
+        .filter(|m| !m.holds(&st))
         .map(|m| format!("{m:?}"))
         .collect();
     if !lost.is_empty() {
@@ -538,13 +754,43 @@ fn settle_check(lang: Lang) -> Result<()> {
     Ok(())
 }
 
-fn status(lang: Lang) -> Result<()> {
+#[derive(serde::Serialize)]
+struct StatusModule {
+    module: String,
+    active: bool,
+    pending: bool,
+    applied: bool,
+}
+
+/// Forma estable de `anonify status --json`.
+#[derive(serde::Serialize)]
+struct StatusReport {
+    drift: bool,
+    active: Vec<String>,
+    pending: Vec<String>,
+    modules: Vec<StatusModule>,
+}
+
+fn status(lang: Lang, json: bool) -> Result<()> {
     let st = State::load()?;
     let mut drift = false;
+    let mut modules: Vec<StatusModule> = Vec::new();
     for &m in Module::ALL {
         let active = st.active.contains(&m);
         let pending = st.pending.contains(&m);
-        let applied = active && holds(m, &st);
+        let applied = active && m.holds(&st);
+        if pending || (active && !applied) {
+            drift = true;
+        }
+        modules.push(StatusModule {
+            module: format!("{m:?}").to_lowercase(),
+            active,
+            pending,
+            applied,
+        });
+        if json {
+            continue;
+        }
         let tag = if pending {
             "!!"
         } else if !active {
@@ -560,7 +806,6 @@ fn status(lang: Lang) -> Result<()> {
             m.desc(lang)
         );
         if pending {
-            drift = true;
             println!(
                 "        \u{26a0} {}",
                 tr(
@@ -570,7 +815,6 @@ fn status(lang: Lang) -> Result<()> {
                 )
             );
         } else if active && !applied {
-            drift = true;
             println!(
                 "        \u{26a0} {}",
                 tr(
@@ -580,6 +824,23 @@ fn status(lang: Lang) -> Result<()> {
                 )
             );
         }
+    }
+    if json {
+        let report = StatusReport {
+            drift,
+            active: modules
+                .iter()
+                .filter(|m| m.active)
+                .map(|m| m.module.clone())
+                .collect(),
+            pending: modules
+                .iter()
+                .filter(|m| m.pending)
+                .map(|m| m.module.clone())
+                .collect(),
+            modules,
+        };
+        println!("{}", serde_json::to_string_pretty(&report)?);
     }
     if drift {
         std::process::exit(1);

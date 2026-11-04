@@ -97,10 +97,20 @@ fn apply_at(base: &Path, st: &mut State, list: &[(&str, &str)]) -> Result<()> {
     Ok(())
 }
 
+/// Restaura una clave y decide si el valor original ya está garantizado.
+///
+/// `write_key` puede fallar porque la clave es de solo lectura (por ejemplo,
+/// un sysctl global dentro de un contenedor rootless). Si al releerla el valor
+/// sigue siendo el original, el sistema nunca cambió: no hay nada pendiente y
+/// conservarla en `State` bloquearía `cleanup_pending` para siempre.
+fn restore_key(base: &Path, key: &str, old: &str) -> bool {
+    write_key(base, key, old) || read_key(base, key).as_deref() == Some(old)
+}
+
 fn rollback(base: &Path, st: &mut State, touched: &[(&str, String)]) -> Vec<String> {
     let mut stuck = Vec::new();
     for (k, old) in touched.iter().rev() {
-        if write_key(base, k, old) {
+        if restore_key(base, k, old) {
             st.sysctl.remove(*k);
         } else {
             stuck.push((*k).to_string());
@@ -130,7 +140,7 @@ fn revert_at(base: &Path, st: &mut State, list: &[(&str, &str)]) -> Result<()> {
         let Some(old) = st.sysctl.get(*k).cloned() else {
             continue;
         };
-        if write_key(base, k, &old) {
+        if restore_key(base, k, &old) {
             st.sysctl.remove(*k);
         } else {
             stuck.push((*k).to_string());

@@ -46,7 +46,7 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 
 | Module       | What it does                                                                                                                                        | How it's reverted                                                       |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `mac`        | Randomizes the MAC address on physical network interfaces.                                                                                          | Restores the original MAC via `ip link`.                                |
+| `mac`        | Randomizes the MAC address on physical interfaces. By default it uses a locally administered address (no vendor); `--mac-vendor` picks a real OUI family when a network rejects those. | Restores the original MAC via `ip link`.                                |
 | `hostname`   | Sets an ephemeral, randomized hostname (`host-xxxxxxxx`).                                                                                           | Restores the original hostname.                                         |
 | `sysctl`     | Kernel-level network hardening: ignores ICMP echo, disables TCP timestamps, blocks ICMP redirects, restricts `kptr`/`bpf` exposure.                 | Restores each key's exact previous value.                               |
 | `ipv6`       | Disables IPv6 on all interfaces to eliminate IPv6 leak vectors.                                                                                     | Re-enables IPv6 with its previous value.                                |
@@ -54,13 +54,18 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 | `tor`        | Fail-closed Tor setup: installs the redirecting/blocking `nftables` table **before** bootstrap, then runs an isolated Tor instance.                | Tears down the `nftables` table and stops the Tor process it owns.      |
 | `vpn`        | Brings up a WireGuard/ProtonVPN tunnel via `wg-quick`; resolves the endpoint to numeric IPv4/IPv6 addresses for the kill switch.                    | Runs `wg-quick down`.                                                   |
 | `killswitch` | Strict firewall allowing only loopback, DHCP, VPN interfaces (`wg*`, `tun*`, `proton*`), the resolved VPN endpoint, and Tor daemon traffic.         | Deletes the `inet anonify_ks` table.                                    |
-| `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN and kill-switch state. Public-IP checks go through Tor and are skipped if no anonymity layer is active. | Read-only; no changes.                                                  |
+| `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN and kill-switch state. Public-IP checks go through Tor and are skipped if no anonymity layer is active. `--json` emits the same report for scripts. | Read-only; no changes.                                                  |
+| `launch`     | Starts apps with a whitelisted environment (`PATH`, display/session vars only), `TZ`/`LANG`/`LC_*` set in the child, `no_new_privs`, and a dropped capability bounding set. Under `sudo` it never runs as root. `--isolate` adds a `bubblewrap` sandbox (read-only `/usr` and `/etc`, private `/tmp`, `/dev/shm` and `HOME`, own hostname, no network) and points `XDG_CACHE_HOME`/`TMPDIR` at that tmpfs. | Process exit; nothing persists.                                          |
+| `rotate`     | Re-randomizes the MAC (same vendor policy) and hostname of the active `mac`/`hostname` modules. | The saved originals are untouched, so `restore` still works.            |
+| `watch`      | Re-checks every active module against the real system state on an interval and warns on drift (NetworkManager reverting a MAC, someone deleting the nftables table, …). `--restore` runs a full restore on the first drift; `--once` checks once and exits 1 on drift. | Read-only unless `--restore` is used.                                   |
+
+**Cross-cutting memory hardening.** Every command pins its pages in RAM where the kernel allows it (`mlockall`, best-effort, never fatal), secrets read from disk — such as the WireGuard private key in a `--vpn-conf` file — live in a buffer that is `mlock`ed and zeroized on drop, and the serialized state buffer is wiped after each write. `check` additionally warns when swap is active on a device that is neither `zram` nor verified `dm-crypt`: `tmpfs` pages, including `/run/anonify` with the original MAC/hostname, can otherwise reach disk in cleartext. `anonify` never disables or reformats your swap; that decision stays with you.
 
 ## Requirements & Installation
 
 ```bash
 # 1. System dependencies
-sudo pacman -S --needed rust tor nftables wireguard-tools openresolv iproute2 curl
+sudo pacman -S --needed rust tor nftables wireguard-tools openresolv iproute2 curl bubblewrap util-linux
 
 # 2. Clone and build in release mode
 git clone https://github.com/grubberdubber/anonify.git
@@ -85,6 +90,13 @@ sudo anonify enable --all
 # MAC spoofing + Tor only
 sudo anonify enable mac tor
 
+# Some captive portals/reject locally administered MACs: use a real OUI
+# family instead (documented risk: it may collide with a device on the LAN).
+sudo anonify enable mac --mac-vendor apple
+
+# New MACs + hostname without losing the saved originals
+sudo anonify rotate
+
 # VPN with a strict kill switch
 sudo anonify enable vpn killswitch --vpn-conf ~/my-vpn/mullvad-es.conf
 ```
@@ -99,9 +111,22 @@ the temporary resolver depends on Tor's DNSPort.
 
 ```bash
 sudo anonify status
+# machine-readable equivalent (stable fields, exits 1 on drift)
+sudo anonify status --json
 ```
 
-If NetworkManager or another daemon reverted your MAC or hostname in the background, `anonify` flags it with an `[ON!]` drift warning.
+If NetworkManager or another daemon reverted your MAC or hostname in the background, `anonify` flags it with an `[ON!]` drift warning. To keep checking for as long as a session lasts, run the monitor in the foreground:
+
+```bash
+# Warn on drift every 10s (stderr only, no logs written)
+sudo anonify watch --interval 10
+
+# Or restore everything the moment something external reverts a module
+sudo anonify watch --restore
+
+# One-shot check for scripts/cron (exit 1 on drift)
+sudo anonify watch --once
+```
 
 ### Run a leak check
 
@@ -110,6 +135,12 @@ sudo anonify check
 ```
 
 The check is fail-closed: it never makes a clear-net request to discover your public IP. If Tor is active it queries `check.torproject.org` through Tor's SOCKS port; otherwise it reports that the public-IP check was skipped. It exits non-zero when it detects an active leak.
+
+For automation, `--json` prints a stable object on stdout (`active`, `pending`, `leaks`, `warnings`, `notes`, `ok`) and keeps the same non-zero exit status:
+
+```bash
+sudo anonify check --json | jq -r '.leaks[]?'
+```
 
 ### Verify the build
 
@@ -121,12 +152,58 @@ cargo test
 ./tests/namespace-smoke.sh
 ```
 
-### Launch isolated applications (non-root)
+### Launch applications with a sanitized environment (non-root)
 
 ```bash
 anonify launch vbox Whonix-Workstation
 anonify launch exec -- firefox
+
+# Only the child gets this timezone/locale; /etc/localtime and the system
+# clock are never touched (log timestamps stay truthful).
+anonify launch --tz Europe/Madrid --lang es_ES.UTF-8 exec -- firefox
+
+# Disable the hardening for one app (e.g. one that needs setuid helpers).
+# It is still started as your user, never as root, when run via sudo.
+anonify launch --no-sandbox exec -- firefox
 ```
+
+What `launch` does: drops the inherited environment down to a whitelist (`PATH`,
+`DISPLAY`/Wayland, `XAUTHORITY`, DBus, `XDG_*` session vars), removes
+`HOSTNAME`, `SSH_AUTH_SOCK`, `SSH_CONNECTION` and `MAIL`, replaces `USER`/
+`LOGNAME` with a neutral value, then starts the app through `setpriv` with
+`no_new_privs` and — when root — an empty capability bounding set. It does not
+change your uid file, home, network namespace, or firewall, and it cannot hide
+the kernel hostname (`bash` re-populates `HOSTNAME` from it anyway); use the
+`hostname` module for that. Inside `--isolate`, `TMPDIR` and `XDG_CACHE_HOME`
+point at the sandbox tmpfs, so font/shader/browser caches from that app never
+reach your real home directory.
+
+### Isolate one application (`--isolate`, requires `bubblewrap`)
+
+```bash
+# Offline by construction: no interfaces besides loopback, so no DNS/IP/IPv6
+# leaks are possible. /usr and /etc are read-only; /tmp, /dev/shm and HOME are
+# private tmpfs that vanish when the app exits.
+anonify launch --isolate exec -- zathura documento.pdf
+
+# Give it the host network (e.g. already routed through tor/vpn/killswitch),
+# a fixed hostname and a throwaway browser profile in RAM.
+anonify launch --isolate --allow-net --hostname research \
+  --home /dev/shm/profile exec -- firefox
+```
+
+`--isolate` uses `bubblewrap --unshare-all --die-with-parent`: PID, IPC, UTS,
+network and cgroup namespaces are private, and the sandbox disappears with the
+process. Nothing is written to the system: no mounts, rules, or config files
+survive. Under `sudo`, privileges are dropped to your user *before* `bwrap`
+starts, so the sandbox `HOME` and `/tmp` belong to you and the app can write
+its profile; inside the user namespace it has no capabilities. Limitations: the
+executable must live under `/usr` (`/opt` is not bound), the working directory
+inside the sandbox is `/tmp`, `/etc/machine-id` stays visible, and `--allow-net`
+exposes the host network as-is — pair it with `tor`/`vpn` and `killswitch`,
+never with nothing (`anonify` warns if no anonymity layer is active).
+Unprivileged user namespaces must be enabled; inside a rootless container you
+need `podman run --privileged`.
 
 ### Restore everything
 
@@ -148,9 +225,11 @@ export ANONIFY_LANG=es
 
 ## Roadmap
 
-- [ ] **Network-namespace sandboxing (netns / bubblewrap)**: isolate individual applications in their own ephemeral virtual interface instead of routing the whole system through Tor.
-- [ ] **OUI-aware MAC spoofing**: generate MACs using safe vendor prefixes when a network rejects locally administered addresses.
-- [ ] **Timezone & locale masking for launched apps**: set `TZ`, `LANG`, and `LC_*` only in the child process environment; never alter the system clock or log timestamps.
+- [x] **`bubblewrap` sandbox per app** (`launch --isolate`): read-only system dirs, private `/tmp`/`/dev/shm`/`HOME`, own hostname, no network unless `--allow-net`.
+- [x] **Drift monitor and scriptable output**: `anonify watch` (warn or restore on drift) and `--json` for `status`/`check`.
+- [ ] **Network namespace routed through Tor/VPN**: an ephemeral veth pair so an isolated app keeps *only* tunnel-bound connectivity instead of the host network.
+- [x] **OUI-aware MAC spoofing**: `enable mac --mac-vendor <family>` when a network rejects locally administered addresses; `rotate` re-randomizes with the same policy.
+- [x] **Timezone & locale masking for launched apps**: set `TZ`, `LANG`, and `LC_*` only in the child process environment; never alter the system clock or log timestamps.
 - [ ] **User-initiated metadata scrubber**: `anonify scrub --output <copy> <file>` to strip EXIF/geolocation from an explicit copy, leaving the original untouched.
 - [ ] **Multi-network support**: optional routing through I2P/Lokinet in addition to Tor.
 - [ ] **Ephemeral browser profiles**: launch LibreWolf/Mullvad Browser with a profile mounted on `/dev/shm` that is destroyed on exit.
