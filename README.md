@@ -1,34 +1,56 @@
 # anonify
 
-<!-- Replace with your actual banner image, e.g. docs/banner.png -->
 <p align="center">
-  <img src=".github/assets/anonify_banner.jpg" alt="anonify banner" width="700">
+  <img src=".github/assets/anonify_banner.jpg" alt="anonify" width="560">
 </p>
 
 <p align="center">
-  <strong>Reversible, memory-only network anonymity hardening for Linux.</strong>
+  <strong>Network anonymity for Linux that undoes itself.</strong><br>
+  One command layers MAC and hostname randomization, IPv6/DNS leak prevention, Tor or WireGuard behind a<br>
+  fail-closed kill switch, and a per-app sandbox. <code>anonify restore</code> puts the machine back exactly as it was.
 </p>
 
 <p align="center">
-  <a href="https://www.rust-lang.org/"><img alt="Language: Rust" src="https://img.shields.io/badge/Language-Rust-orange.svg?style=flat-square&logo=rust"></a>
-  <a href="https://archlinux.org/"><img alt="Platform: Arch Linux" src="https://img.shields.io/badge/Platform-Arch_Linux-blue.svg?style=flat-square&logo=arch-linux"></a>
+  <a href="https://github.com/grubberdubber/anonify/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/grubberdubber/anonify/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0-green.svg?style=flat-square&logo=gnu"></a>
+  <a href="https://www.rust-lang.org/"><img alt="Rust 1.98+" src="https://img.shields.io/badge/Rust-1.98%2B-orange.svg?style=flat-square&logo=rust"></a>
+  <img alt="Platform: Linux" src="https://img.shields.io/badge/Platform-Linux-lightgrey.svg?style=flat-square&logo=linux">
   <img alt="State: RAM only" src="https://img.shields.io/badge/State-RAM_only-critical.svg?style=flat-square">
-  <a href="../../issues"><img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square"></a>
+  <a href="#support-this-project"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2.svg?style=flat-square&logo=githubsponsors&logoColor=white"></a>
 </p>
 
-<!-- Replace with an actual terminal recording or screenshot, e.g. docs/demo.gif or docs/screenshot.png -->
 <p align="center">
-  <img src="docs/screenshot.png" alt="anonify terminal demo" width="700">
+  <img src="docs/screenshot.png" alt="anonify status and leak check output" width="760">
 </p>
+
+```bash
+git clone https://github.com/grubberdubber/anonify.git && cd anonify
+cargo build --release && sudo install -m755 target/release/anonify /usr/local/bin/
+sudo anonify enable --all      # then: sudo anonify check · undo: sudo anonify restore
+```
 
 ---
 
 ## Overview
 
-`anonify` is a Rust command-line tool that applies temporary, reversible network-anonymity hardening on Linux. Its own state lives in volatile memory (`/run/anonify`, kernel `sysctl` values, `nftables` tables, bind mounts) — it does not write secrets or activity history to persistent storage, and a reboot or `anonify restore` returns the machine to its original network configuration. Third-party tools that `anonify` invokes (for example `wg-quick` or NetworkManager) may touch system runtime state; `anonify` documents that and restores it on a best-effort basis.
+`anonify` applies temporary, reversible network-anonymity hardening on Linux. Its own state lives in volatile memory (`/run/anonify`, kernel `sysctl` values, `nftables` tables, bind mounts) — it does not write secrets or activity history to persistent storage, and a reboot or `anonify restore` returns the machine to its original network configuration. Third-party tools that `anonify` invokes (for example `wg-quick` or NetworkManager) may touch system runtime state; `anonify` documents that and restores it on a best-effort basis.
 
-It exists because most "anonymity scripts" in circulation are ad-hoc shell scripts that silently fail halfway through, leak traffic over IPv6 or background DNS, or leave the firewall and network stack in a broken, half-applied state. `anonify` is built with real error handling, automatic rollback, and continuous drift detection (so it can tell you if something else on the system — NetworkManager, a daemon, etc. — reverted one of its changes behind its back).
+It exists because most "anonymity scripts" in circulation are ad-hoc shell scripts that silently fail halfway through, leak traffic over IPv6 or background DNS, or leave the firewall and network stack in a broken, half-applied state. `anonify` is built with real error handling, automatic rollback (a failed layer rolls back the ones already applied), and continuous drift detection, so it can tell you if something else on the system — NetworkManager, a daemon — reverted a change behind its back.
+
+### How it compares
+
+| What people usually reach for | What it gives you | What `anonify` adds on top |
+| --- | --- | --- |
+| `macchanger` + a shell script | A new MAC, if nothing fails halfway | MAC, hostname, `sysctl`, IPv6, DNS, tunnel and firewall as **one state**, with verified rollback |
+| A VPN client | An encrypted tunnel | Kill switch, IPv6 off, DNS pinned, and a leak check that refuses to phone home over the clear net |
+| `firejail` / `bwrap` alone | An app sandbox | The sandbox **plus** network-layer hardening, and a child with no capabilities and no logins |
+| `nft` rules by hand | Full control, easy to lock yourself out | Tested table, `restore`, and drift detection when something deletes it |
+| Tails / Whonix | A whole hardened OS | No reboot, no VM: ephemeral changes on the Linux you already run, undone in seconds |
+
+`anonify` is not a replacement for Tor Browser, Tails or Whonix when your threat model includes a global adversary. It is the layer those setups assume you already have: a machine that does not shout its MAC, hostname, DNS and IPv6 at every network it joins.
+
+> **If this saves you an afternoon of `nft` debugging, [a star](https://github.com/grubberdubber/anonify) helps other people find it — and [sponsorship](#support-this-project) pays for the bridge/VPN test matrix.**
+
 
 > **Scope and ethics.** `anonify` is a privacy and network-hardening tool, not an anti-forensics tool. It never deletes, truncates, redirects, or tampers with system logs, audit records, shell histories, file timestamps, or evidence. It does not disable auditing or hide activity. Features that would obstruct an investigation are out of scope and are rejected in review. See [AGENTS.md](AGENTS.md) and the [Legal & Disclaimer](#legal--disclaimer) section.
 
@@ -263,6 +285,8 @@ export ANONIFY_LANG=es
 
 Found a bug, a network configuration this doesn't handle, or an idea for a privacy module? Please [open an issue](../../issues). Well-structured, focused pull requests that fit the project's scope are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting: contributions that delete or tamper with logs, audit trails, timestamps, histories, or evidence are rejected.
 
+Helping the project get seen counts too: [docs/launch-kit.md](docs/launch-kit.md) has ready-to-adapt posts for Hacker News, Rust/privacy communities and privacy catalogs, plus the compatibility-report template that feeds the test matrix.
+
 ## Legal & Disclaimer
 
 **anonify is provided for lawful use only** — personal privacy, authorized security research, and authorized red-team engagements. You are solely responsible for complying with the laws of your jurisdiction and the terms of any network, platform, or engagement you use this tool on. The author does not condone, and is not responsible for, any unlawful use of this software by any party.
@@ -281,7 +305,20 @@ If you are conducting an authorized security assessment, ensure your engagement'
 
 ## Support This Project
 
-`anonify` is free, open-source, and developed independently. If your organization funds digital-privacy or anonymity tooling and would like to support continued development, please reach out via [Issues](../../issues) or see [FUNDING.yml](.github/FUNDING.yml) for sponsorship options (GitHub Sponsors / Open Collective / etc.).
+`anonify` is free software (GPLv3), built and maintained by one person, with no telemetry, no ads and no paid tier. Sponsorship pays for the parts that are hard to do alone:
+
+- **A real test matrix**: disposable VPS and router/firmware combinations to verify kill-switch, MAC and DHCP behavior on actual captive-portal and corporate networks, plus Tor bridges so `--tor-bridges` is tested against real DPI instead of a mock.
+- **Maintenance**: tracking kernel, `nftables`, Tor and NetworkManager changes *before* they break someone's setup mid-session.
+- **A funded security review** of the root-only paths (nftables interpolation, state rollback, `launch` sandbox) once there is budget for it.
+
+Ways to help, cheapest first:
+
+- ⭐ **Star the repo** — it is the single biggest driver of visibility for a project like this.
+- 🐛 **Report your distro / NetworkManager / VPN combination** in [Issues](../../issues): those reports are what the compatibility matrix is built from.
+- 💜 **[Sponsor via GitHub Sponsors](https://github.com/sponsors/grubberdubber)** (one-off or monthly); other channels go in [FUNDING.yml](.github/FUNDING.yml).
+- 🏢 **Organizations**: sponsorship with an invoice, or fund a specific roadmap item.
+
+Sponsorship never buys influence over scope. The legal and ethical limits in [AGENTS.md](AGENTS.md) are not for sale, and no funding changes the threat model.
 
 ## License
 
