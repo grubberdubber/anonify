@@ -50,6 +50,10 @@ enum Cmd {
         /// `WireGuard` config for the `vpn` module
         #[arg(long)]
         vpn_conf: Option<PathBuf>,
+        /// File with `Bridge ...` / `ClientTransportPlugin ...` lines for Tor
+        /// (pluggable transports such as obfs4 or snowflake)
+        #[arg(long, value_name = "FILE")]
+        tor_bridges: Option<PathBuf>,
         /// MAC policy for the `mac` module: local (default), random vendor,
         /// or a specific OUI family (intel, apple, cisco, dell, samsung,
         /// tp-link, realtek, raspberry)
@@ -148,6 +152,18 @@ fn lock_memory(lang: Lang) {
             )
         );
     }
+    // Dumpable=0, core dumps off, no_new_privs: hardened for the whole process
+    // tree this run starts (including `launch` children).
+    if let Err(e) = mem::harden_process() {
+        eprintln!(
+            "[!] {}: {e:#}",
+            tr(
+                lang,
+                "could not harden the process (dumpable/core/no_new_privs)",
+                "no se pudo endurecer el proceso (dumpable/core/no_new_privs)"
+            )
+        );
+    }
 }
 
 fn run_launch(lang: Lang, args: LaunchArgs) -> Result<()> {
@@ -199,7 +215,13 @@ fn run_launch(lang: Lang, args: LaunchArgs) -> Result<()> {
     }
 }
 
-fn activate(m: Module, st: &mut State, conf: Option<&Path>, vendor: mac::Vendor) -> Result<()> {
+fn activate(
+    m: Module,
+    st: &mut State,
+    conf: Option<&Path>,
+    vendor: mac::Vendor,
+    bridges: &[String],
+) -> Result<()> {
     match m {
         Module::Mac => mac::enable(st, vendor),
         Module::Hostname => hostname::enable(st),
@@ -207,7 +229,7 @@ fn activate(m: Module, st: &mut State, conf: Option<&Path>, vendor: mac::Vendor)
         Module::Ipv6 => ipv6::enable(st),
         Module::Vpn => vpn::enable(st, conf),
         Module::Dns => dns::enable(st),
-        Module::Tor => tor::enable(),
+        Module::Tor => tor::enable(bridges),
         Module::Killswitch => killswitch::enable(st),
     }
 }
@@ -294,6 +316,7 @@ fn enable(
     all: bool,
     conf: Option<&Path>,
     vendor: mac::Vendor,
+    bridges: &[String],
 ) -> Result<()> {
     if all {
         mods.extend_from_slice(Module::DEFAULT_SET);
@@ -329,7 +352,7 @@ fn enable(
             tr(lang, "enabling", "activando"),
             m.desc(lang)
         );
-        if let Err(e) = activate(m, &mut st, conf, vendor) {
+        if let Err(e) = activate(m, &mut st, conf, vendor, bridges) {
             // The failed module may have left partial state; clean it too.
             let mut to_rollback = activated_now.clone();
             to_rollback.push(m);
@@ -649,6 +672,7 @@ fn dispatch(cmd: Cmd, lang: Lang) -> Result<()> {
             modules,
             all,
             vpn_conf,
+            tor_bridges,
             mac_vendor,
         } => {
             let wants = |m: Module| all || modules.contains(&m);
@@ -672,12 +696,27 @@ fn dispatch(cmd: Cmd, lang: Lang) -> Result<()> {
                     )
                 );
             }
+            if tor_bridges.is_some() && !wants(Module::Tor) {
+                eprintln!(
+                    "[!] {}",
+                    tr(
+                        lang,
+                        "--tor-bridges is ignored because the tor module is not being enabled",
+                        "--tor-bridges se ignora porque el módulo tor no se está activando"
+                    )
+                );
+            }
+            let bridges = match tor_bridges.as_deref() {
+                Some(path) => tor::load_bridges(path)?,
+                None => Vec::new(),
+            };
             enable(
                 lang,
                 modules,
                 all,
                 vpn_conf.as_deref(),
                 mac_vendor.unwrap_or_default(),
+                &bridges,
             )?;
             settle_check(lang)
         }

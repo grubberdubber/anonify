@@ -51,7 +51,7 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 | `sysctl`     | Kernel-level network hardening: ignores ICMP echo, disables TCP timestamps, blocks ICMP redirects, restricts `kptr`/`bpf` exposure.                 | Restores each key's exact previous value.                               |
 | `ipv6`       | Disables IPv6 on all interfaces to eliminate IPv6 leak vectors.                                                                                     | Re-enables IPv6 with its previous value.                                |
 | `dns`        | Temporary RAM-backed bind mount over `/etc/resolv.conf`, pinned to `127.0.0.1` so Tor's DNSPort redirect handles resolution. Requires `tor`.       | Unmounts `/etc/resolv.conf` immediately.                                |
-| `tor`        | Fail-closed Tor setup: installs the redirecting/blocking `nftables` table **before** bootstrap, then runs an isolated Tor instance.                | Tears down the `nftables` table and stops the Tor process it owns.      |
+| `tor`        | Fail-closed Tor setup: installs the redirecting/blocking `nftables` table **before** bootstrap, then runs an isolated Tor instance. `--tor-bridges <FILE>` adds bridges and pluggable transports (obfs4, snowflake, meek, webtunnel) for restrictive networks. | Tears down the `nftables` table and stops the Tor process it owns.      |
 | `vpn`        | Brings up a WireGuard/ProtonVPN tunnel via `wg-quick`; resolves the endpoint to numeric IPv4/IPv6 addresses for the kill switch.                    | Runs `wg-quick down`.                                                   |
 | `killswitch` | Strict firewall allowing only loopback, DHCP, VPN interfaces (`wg*`, `tun*`, `proton*`), the resolved VPN endpoint, and Tor daemon traffic.         | Deletes the `inet anonify_ks` table.                                    |
 | `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN, kill-switch state, default routes and extra physical interfaces. Public-IP checks go through Tor and are skipped if no anonymity layer is active. `--json` emits the same report for scripts. | Read-only; no changes.                                                  |
@@ -61,11 +61,23 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 
 **Cross-cutting memory hardening.** Every command pins its pages in RAM where the kernel allows it (`mlockall`, best-effort, never fatal), secrets read from disk — such as the WireGuard private key in a `--vpn-conf` file — live in a buffer that is `mlock`ed and zeroized on drop, and the serialized state buffer is wiped after each write. `check` additionally warns when swap is active on a device that is neither `zram` nor verified `dm-crypt`: `tmpfs` pages, including `/run/anonify` with the original MAC/hostname, can otherwise reach disk in cleartext. `anonify` never disables or reformats your swap; that decision stays with you.
 
+**Cross-cutting process hardening.** Before doing any work, `anonify` calls
+`prctl(PR_SET_DUMPABLE, 0)` so an unprivileged same-user process cannot attach
+with `ptrace`/`gdb` or read its memory through `/proc/<pid>/{mem,environ}`,
+zeroes `RLIMIT_CORE` so a crash can never dump key material to disk, and sets
+`PR_SET_NO_NEW_PRIVS` so the process can never gain privileges through a
+setuid helper. The limits are inherited by `launch`ed children and by
+`bubblewrap`. Tightening `ptrace_scope` (Yama) and dropping root from the
+system's other processes is left to you: `anonify` only hardens itself, never
+other programs, and never touches their logging or audit state.
+
 ## Requirements & Installation
 
 ```bash
 # 1. System dependencies
 sudo pacman -S --needed rust tor nftables wireguard-tools openresolv iproute2 curl bubblewrap util-linux
+# Optional: pluggable transports for `--tor-bridges` (obfs4, snowflake, ...)
+sudo pacman -S --needed obfs4proxy
 
 # 2. Clone and build in release mode
 git clone https://github.com/grubberdubber/anonify.git
@@ -99,7 +111,17 @@ sudo anonify rotate
 
 # VPN with a strict kill switch
 sudo anonify enable vpn killswitch --vpn-conf ~/my-vpn/mullvad-es.conf
+
+# Tor behind bridges / a pluggable transport (DPI-heavy or filtered networks)
+sudo anonify enable tor --tor-bridges ~/bridges.txt
 ```
+
+The bridges file holds only `Bridge ...` and `ClientTransportPlugin ...` lines
+(the format from `torproject.org/relay/bridge`); any other directive is
+rejected before the firewall is touched, so the file cannot become an arbitrary
+`torrc`. Pluggable transports need their binary installed (for example
+`obfs4proxy`); Tor runs it as the `tor` user from the sandboxed instance
+directory under `/run/anonify`.
 
 `vpn` does not silently install `killswitch` for you (that would change the
 routes and firewall you explicitly asked for). If you enable `vpn` alone,

@@ -139,8 +139,8 @@ fn preflight() -> Result<()> {
     Ok(())
 }
 
-fn torrc() -> String {
-    format!(
+fn torrc(bridges: &[String]) -> String {
+    let mut out = format!(
         "User tor\nDataDirectory {}\nPidFile {}\nRunAsDaemon 1\n\
          Log notice file {}\nSocksPort 127.0.0.1:{SOCKS_PORT} IsolateClientAddr\n\
          TransPort 127.0.0.1:{TRANS_PORT}\nDNSPort 127.0.0.1:{DNS_PORT}\n\
@@ -149,16 +149,80 @@ fn torrc() -> String {
         dd(),
         pid_path(),
         log_path()
-    )
+    );
+    if !bridges.is_empty() {
+        out.push_str("UseBridges 1\n");
+        for line in bridges {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
 }
 
-fn prepare_dir() -> Result<()> {
+/// Puertos de un transporte conectable que Tor no puede usar sin un
+/// `ClientTransportPlugin` declarado.
+const PLUGGABLE: &[&str] = &["obfs4", "snowflake", "meek", "webtunnel"];
+
+/// Acepta un archivo con líneas `Bridge ...` y, opcionalmente,
+/// `ClientTransportPlugin ...`. Se rechaza cualquier otra directiva: la
+/// torrc vive en memoria y no debe convertirse en un archivo de configuración
+/// arbitrario de Tor.
+fn parse_bridges(text: &str) -> Result<Vec<String>> {
+    let mut lines: Vec<String> = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line.chars().any(char::is_control) {
+            bail!("línea de bridge con caracteres de control: {line:?}");
+        }
+        let lower = line.to_ascii_lowercase();
+        if !(lower.starts_with("bridge ") || lower.starts_with("clienttransportplugin ")) {
+            bail!("línea no permitida en el archivo de bridges: `{line}` (usa `Bridge ...` o `ClientTransportPlugin ...`)");
+        }
+        lines.push(line.to_string());
+    }
+    if !lines
+        .iter()
+        .any(|l| l.to_ascii_lowercase().starts_with("bridge "))
+    {
+        bail!("el archivo de bridges no contiene ninguna línea `Bridge`");
+    }
+    let pluggable = lines.iter().any(|line| {
+        let lower = line.to_ascii_lowercase();
+        lower.starts_with("bridge ")
+            && lower
+                .split_whitespace()
+                .nth(1)
+                .is_some_and(|transport| PLUGGABLE.contains(&transport))
+    });
+    let has_plugin = lines
+        .iter()
+        .any(|l| l.to_ascii_lowercase().starts_with("clienttransportplugin "));
+    if pluggable && !has_plugin {
+        bail!(
+            "las bridges con transporte conectable necesitan una línea \
+             `ClientTransportPlugin` (p. ej. `ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy`)"
+        );
+    }
+    Ok(lines)
+}
+
+pub fn load_bridges(path: &Path) -> Result<Vec<String>> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("leyendo el archivo de bridges {}", path.display()))?;
+    parse_bridges(&text).with_context(|| format!("en {}", path.display()))
+}
+
+fn prepare_dir(bridges: &[String]) -> Result<()> {
     let d = dd();
     fs::create_dir_all(&d)?;
     sys::run("chown", &["tor:tor", &d])?;
     fs::set_permissions(&d, fs::Permissions::from_mode(0o700))?;
     let rc = torrc_path();
-    fs::write(&rc, torrc())?;
+    fs::write(&rc, torrc(bridges))?;
     // El archivo solo contiene opciones, no secretos; tor lo lee antes de
     // bajar privilegios. 0644 evita fallos si el umask es agresivo.
     fs::set_permissions(&rc, fs::Permissions::from_mode(0o644))?;
@@ -214,10 +278,10 @@ fn socks_ready() -> bool {
     false
 }
 
-pub fn enable() -> Result<()> {
+pub fn enable(bridges: &[String]) -> Result<()> {
     let uid = read_uid()?;
     preflight()?;
-    prepare_dir()?;
+    prepare_dir(bridges)?;
     // No borramos logs: solo recordamos el tamaño previo para buscar el
     // bootstrap de ESTA ejecución. El aviso vive en tmpfs y no es un log del
     // sistema.
@@ -405,6 +469,49 @@ mod tests {
             "la tabla debe conservar la política fail-closed"
         );
         sys::run("nft", &["delete", "table", "inet", TABLE]).expect("limpiar tabla de prueba");
+    }
+
+    #[test]
+    fn accepts_bridge_and_plugin_lines() {
+        let text = "# bridges\n\n\
+                    Bridge obfs4 192.0.2.10:443 FINGERPRINT cert=abc iat-mode=0\n\
+                    ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy\n";
+        let lines = parse_bridges(text).expect("config válida");
+        assert_eq!(lines.len(), 2);
+        let rc = torrc(&lines);
+        assert!(rc.contains("UseBridges 1"));
+        assert!(rc.contains("Bridge obfs4 192.0.2.10:443"));
+        assert!(rc.contains("ClientTransportPlugin obfs4"));
+    }
+
+    #[test]
+    fn no_bridges_means_no_use_bridges() {
+        assert!(!torrc(&[]).contains("UseBridges"));
+    }
+
+    #[test]
+    fn rejects_arbitrary_tor_directives() {
+        let err = parse_bridges("SocksPort 0.0.0.0:9050\n").expect_err("debe fallar");
+        assert!(format!("{err:#}").contains("no permitida"));
+    }
+
+    #[test]
+    fn requires_a_bridge_line() {
+        let err = parse_bridges("ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy\n")
+            .expect_err("falta Bridge");
+        assert!(format!("{err:#}").contains("Bridge"));
+    }
+
+    #[test]
+    fn pluggable_bridge_needs_a_plugin() {
+        let err = parse_bridges("Bridge snowflake 192.0.2.1:443\n").expect_err("falta plugin");
+        assert!(format!("{err:#}").contains("ClientTransportPlugin"));
+    }
+
+    #[test]
+    fn plain_relay_bridge_needs_no_plugin() {
+        let lines = parse_bridges("Bridge 192.0.2.1:9001 AAAA\n").expect("bridge simple");
+        assert_eq!(lines.len(), 1);
     }
 
     #[test]

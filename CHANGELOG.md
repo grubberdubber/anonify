@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `enable --tor-bridges <FILE>`: feeds Tor a bridges file for censored or DPI-heavy
+  networks. Only `Bridge ...` and `ClientTransportPlugin ...` lines are accepted
+  (pluggable transports must declare their plugin, and other directives such as
+  `SocksPort` are rejected) so the file cannot smuggle an arbitrary `torrc` into
+  the sandboxed instance; the parse happens before any firewall change.
+- Process-wide hardening at startup: `PR_SET_DUMPABLE=0` blocks same-user
+  `ptrace`/`/proc/<pid>/mem` access, `RLIMIT_CORE=0` prevents core dumps from
+  spilling keys to disk, and `PR_SET_NO_NEW_PRIVS` stops privilege gain via
+  setuid helpers. `launch`ed children inherit all three.
 - `check` now audits routes and secondary links (still read-only): with `vpn`
   active, an IPv4/IPv6 default route that still leaves through a physical
   interface is reported as a leak (covering split tunnels), an IPv6 default

@@ -11,7 +11,7 @@
 //! - `swap_warnings`: auditoría de solo lectura de `/proc/swaps`. Si hay swap
 //!   en claro, las páginas de tmpfs (incluido `/run/anonify` con los valores
 //!   originales de MAC/hostname) pueden acabar escritas en disco.
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
 use zeroize::Zeroize;
@@ -26,6 +26,52 @@ pub fn lock_process() -> Result<()> {
         return Err(std::io::Error::last_os_error()).context("mlockall(MCL_CURRENT)");
     }
     Ok(())
+}
+
+/// Endurece el proceso actual (nada de esto cambia el sistema):
+///
+/// - `PR_SET_DUMPABLE=0`: otro proceso del mismo usuario no puede adjuntarse
+///   con `ptrace`, leer `/proc/<pid>/mem` ni recibir el core dump.
+/// - `RLIMIT_CORE=0`: si el proceso aborta, el kernel no escribe a disco una
+///   instantánea de la memoria (estado, claves, rutas).
+/// - `PR_SET_NO_NEW_PRIVS`: ningún `exec` posterior gana privilegios vía
+///   binarios setuid o file capabilities.
+///
+/// Los tres son irreversibles para este proceso y sus hijos, a propósito. Si
+/// alguno falla se intentan los demás y se devuelve el conjunto de errores.
+pub fn harden_process() -> Result<()> {
+    let mut failures: Vec<String> = Vec::new();
+
+    // SAFETY: `prctl` solo recibe enteros; PR_SET_DUMPABLE no toma punteros.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        failures.push(format!(
+            "PR_SET_DUMPABLE: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    let limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `limit` es un `rlimit` válido y `setrlimit` solo lee de él.
+    if unsafe { libc::setrlimit(libc::RLIMIT_CORE, &raw const limit) } != 0 {
+        failures.push(format!("RLIMIT_CORE: {}", std::io::Error::last_os_error()));
+    }
+
+    // SAFETY: same as above; PR_SET_NO_NEW_PRIVS takes integer arguments only.
+    if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
+        failures.push(format!(
+            "PR_SET_NO_NEW_PRIVS: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
 }
 
 /// Texto sensible que se zeroiza al liberarse. No implementa `Debug` ni
