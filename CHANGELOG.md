@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `launch browser`: opens LibreWolf/Firefox/`firefox-esr` with a throwaway
+  profile in `/run/user/<uid>` (tmpfs, `0700`, `user.js` `0600`) instead of the
+  user's real profile. The generated `user.js` closes the leaks a proxy alone
+  does not cover — WebRTC local IP, plaintext DNS, DoH/TRR to a third party,
+  speculative connections, telemetry/studies, Safe Browsing, Pocket/FxA, crash
+  reports — and starts in permanent private browsing so nothing persists. When
+  a SOCKS listener is up on `127.0.0.1:9050`, all traffic and DNS are pinned to
+  it; otherwise it warns and uses the system network (VPN-only setups). The
+  profile is memory-backed and is never deleted by `anonify`, so the tool does
+  not touch session history; it disappears on reboot. Integrates with
+  `--isolate --allow-net` when the sandbox needs the host network.
 - `enable --tor-bridges <FILE>`: feeds Tor a bridges file for censored or DPI-heavy
   networks. Only `Bridge ...` and `ClientTransportPlugin ...` lines are accepted
   (pluggable transports must declare their plugin, and other directives such as

@@ -147,14 +147,15 @@ publicado deliberadamente.
 
 **Actuales:** `mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor` (con
 `--tor-bridges`), `vpn`, `killswitch`, `check`, `launch` (`--isolate` con
-`bubblewrap`), `rotate`, `watch`, `status`/`check --json`. Transversales:
+`bubblewrap` y `browser` con perfil efímero en tmpfs), `rotate`, `watch`,
+`status`/`check --json`. Transversales:
 `mlockall`, `zeroize` de secretos y estado, y endurecimiento del proceso
 (`PR_SET_DUMPABLE=0`, `RLIMIT_CORE=0`, `PR_SET_NO_NEW_PRIVS`).
 
 **Expansión aceptada, con revisión:** `netns`/`bwrap` (aislamiento por app),
 `TZ`/`LANG`/`LC_*` en el hijo, `mlock`/`zeroize` propios, DNS DoT/DoH local y
-verificación de fugas, auditoría en `check`, OUI-aware MAC, perfiles efímeros de
-navegador en `/dev/shm`, `scrub` de **copias**, seccomp y cap-drop en el
+verificación de fugas, auditoría en `check`, OUI-aware MAC, `scrub` de
+**copias**, seccomp y cap-drop en el
 sandbox, límites de recursos con cgroups v2, build estático musl en CI,
 bundle de CAs y Fontconfig mínimos dentro del sandbox.
 

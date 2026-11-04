@@ -77,7 +77,7 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 | `vpn`        | Brings up a WireGuard/ProtonVPN tunnel via `wg-quick`; resolves the endpoint to numeric IPv4/IPv6 addresses for the kill switch.                    | Runs `wg-quick down`.                                                   |
 | `killswitch` | Strict firewall allowing only loopback, DHCP, VPN interfaces (`wg*`, `tun*`, `proton*`), the resolved VPN endpoint, and Tor daemon traffic.         | Deletes the `inet anonify_ks` table.                                    |
 | `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN, kill-switch state, default routes and extra physical interfaces. Public-IP checks go through Tor and are skipped if no anonymity layer is active. `--json` emits the same report for scripts. | Read-only; no changes.                                                  |
-| `launch`     | Starts apps with a whitelisted environment (`PATH`, display/session vars only), `TZ`/`LANG`/`LC_*` set in the child, `no_new_privs`, and a dropped capability bounding set. Under `sudo` it never runs as root. `--isolate` adds a `bubblewrap` sandbox (read-only `/usr` and `/etc`, private `/tmp`, `/dev/shm` and `HOME`, own hostname, no network) and points `XDG_CACHE_HOME`/`TMPDIR` at that tmpfs. | Process exit; nothing persists.                                          |
+| `launch`     | Starts apps with a whitelisted environment (`PATH`, display/session vars only), `TZ`/`LANG`/`LC_*` set in the child, `no_new_privs`, and a dropped capability bounding set. Under `sudo` it never runs as root. `--isolate` adds a `bubblewrap` sandbox (read-only `/usr` and `/etc`, private `/tmp`, `/dev/shm` and `HOME`, own hostname, no network) and points `XDG_CACHE_HOME`/`TMPDIR` at that tmpfs. `launch browser` opens Firefox/LibreWolf with a throwaway, leak-hardened profile in tmpfs and the local Tor SOCKS when it is up. | Process exit; nothing persists.                                          |
 | `rotate`     | Re-randomizes the MAC (same vendor policy) and hostname of the active `mac`/`hostname` modules. | The saved originals are untouched, so `restore` still works.            |
 | `watch`      | Re-checks every active module against the real system state on an interval and warns on drift (NetworkManager reverting a MAC, someone deleting the nftables table, …). `--restore` runs a full restore on the first drift; `--once` checks once and exits 1 on drift. | Read-only unless `--restore` is used.                                   |
 
@@ -249,6 +249,35 @@ never with nothing (`anonify` warns if no anonymity layer is active).
 Unprivileged user namespaces must be enabled; inside a rootless container you
 need `podman run --privileged`.
 
+### Browse with a throwaway profile (`launch browser`, non-root)
+
+```bash
+# With `tor` enabled: every request, including DNS, goes to the local SOCKS;
+# WebRTC, telemetry, prefetch and third-party lookups are off.
+sudo anonify enable tor
+anonify launch browser https://example.org
+
+# Inside the sandbox the browser needs the host network, because the SOCKS
+# listener lives on loopback and the sandbox has no network of its own.
+anonify launch --isolate --allow-net browser
+```
+
+`launch browser` starts LibreWolf, Firefox or `firefox-esr` with a brand-new
+profile in `/run/user/<uid>` (tmpfs, `0700`, `user.js` `0600`) and a `user.js`
+that closes the leaks a proxy alone does not: WebRTC (local IP), plaintext DNS,
+DoH/TRR to a third party, speculative connections, telemetry, Normandy
+studies, Safe Browsing lookups, Pocket/Firefox Accounts, crash reports and
+persistent history/cache (`privatebrowsing.autostart=true`). When something is
+listening on `127.0.0.1:9050`, the proxy is pinned to it with remote DNS;
+otherwise the browser uses the system network and warns, because a VPN without
+Tor is a legitimate setup.
+
+`anonify` does **not** delete the profile when the browser exits: wiping a
+session's history is exactly the anti-forensic behavior this project refuses
+to ship. The profile is memory-backed and disappears on reboot; its path is
+printed so you can inspect it. Your normal Firefox profile, `/etc/localtime`
+and the system clock are never touched.
+
 ### Restore everything
 
 ```bash
@@ -276,7 +305,7 @@ export ANONIFY_LANG=es
 - [x] **Timezone & locale masking for launched apps**: set `TZ`, `LANG`, and `LC_*` only in the child process environment; never alter the system clock or log timestamps.
 - [ ] **User-initiated metadata scrubber**: `anonify scrub --output <copy> <file>` to strip EXIF/geolocation from an explicit copy, leaving the original untouched.
 - [ ] **Multi-network support**: optional routing through I2P/Lokinet in addition to Tor.
-- [ ] **Ephemeral browser profiles**: launch LibreWolf/Mullvad Browser with a profile mounted on `/dev/shm` that is destroyed on exit.
+- [x] **Ephemeral browser profiles** (`launch browser`): throwaway profile in `/run/user/<uid>`, hardened `user.js`, Tor SOCKS forced when available. Never written to disk and never deleted by `anonify`.
 - [ ] **DNS leak matrix**: DoT/DoH local resolver mode and per-interface leak tests.
 
 > **Not on the roadmap, by policy:** log deletion, journald/audit suppression, timestamp manipulation, shell-history wiping, process/file hiding, forensic-tool blocking, or any “anti-forensic” cleanup. See [AGENTS.md](AGENTS.md).

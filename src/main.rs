@@ -133,6 +133,11 @@ enum LaunchAction {
         vm: Option<String>,
     },
     Proton,
+    /// Firefox/LibreWolf with an ephemeral, hardened profile (no root needed)
+    Browser {
+        /// Page to open (http/https only); omit for a blank start
+        url: Option<String>,
+    },
     Exec {
         #[arg(trailing_var_arg = true, required = true)]
         cmd: Vec<String>,
@@ -211,6 +216,7 @@ fn run_launch(lang: Lang, args: LaunchArgs) -> Result<()> {
     match args.action {
         LaunchAction::Vbox { vm } => launch::vbox(vm.as_deref(), &sandbox, iso),
         LaunchAction::Proton => launch::proton(&sandbox, iso),
+        LaunchAction::Browser { url } => launch::browser(url.as_deref(), &sandbox, iso),
         LaunchAction::Exec { cmd } => launch::spawn(&cmd[0], &cmd[1..], &sandbox, iso),
     }
 }
