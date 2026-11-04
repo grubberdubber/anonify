@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `check` now audits routes and secondary links (still read-only): with `vpn`
+  active, an IPv4/IPv6 default route that still leaves through a physical
+  interface is reported as a leak (covering split tunnels), an IPv6 default
+  route while `ipv6` is supposed to be off is a leak, and more than one
+  physical interface being up is warned as an extra egress path. Parsers for
+  `/proc/net/route` and `/proc/net/ipv6_route` are unit-tested.
 - `anonify watch`: foreground drift monitor that re-verifies active modules
   against the real system state on an interval. Warns once per drift episode
   (stderr only, nothing logged), `--restore` runs a full restore and exits on

@@ -139,6 +139,85 @@ fn check_memory(warnings: &mut Vec<String>) {
     warnings.extend(mem::swap_warnings());
 }
 
+/// Interfaz de la ruta por defecto IPv4 según `/proc/net/route`.
+/// El kernel marca la ruta por defecto con destino y máscara a cero.
+fn default_route_iface(text: &str) -> Option<String> {
+    text.lines().skip(1).find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 8 {
+            return None;
+        }
+        (fields[1] == "00000000" && fields[7] == "00000000").then(|| fields[0].to_string())
+    })
+}
+
+/// Interfaz de la ruta por defecto IPv6 según `/proc/net/ipv6_route`:
+/// destino a cero y longitud de prefijo `00`.
+fn ipv6_default_iface(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        if fields.len() < 10 {
+            return None;
+        }
+        let zero_dest = fields[0].bytes().all(|b| b == b'0');
+        (zero_dest && fields[1] == "00").then(|| fields[9].to_string())
+    })
+}
+
+fn is_tunnel(dev: &str) -> bool {
+    ["wg", "tun", "proton"].iter().any(|p| dev.starts_with(p))
+}
+
+/// `IFF_UP` (0x1) leído de `/sys/class/net/<dev>/flags`.
+fn link_is_up(dev: &str) -> bool {
+    let Ok(raw) = fs::read_to_string(format!("/sys/class/net/{dev}/flags")) else {
+        return false;
+    };
+    let raw = raw.trim();
+    let hex = raw.strip_prefix("0x").unwrap_or(raw);
+    u32::from_str_radix(hex, 16).is_ok_and(|flags| flags & 0x1 != 0)
+}
+
+/// Fugas por rutas: una VPN activa con la ruta por defecto aún en una interfaz
+/// física deja escapar tráfico; una interfaz física extra encendida es una vía
+/// de salida alternativa. Solo lectura: se avisa, no se apaga nada.
+fn check_routes(st: &State, leaks: &mut Vec<String>, warnings: &mut Vec<String>) {
+    if st.active.contains(&Module::Vpn) {
+        match default_route_iface(&fs::read_to_string("/proc/net/route").unwrap_or_default()) {
+            Some(dev) if is_tunnel(&dev) => {}
+            Some(dev) => leaks.push(format!(
+                "VPN is active but the IPv4 default route still goes through `{dev}`"
+            )),
+            None => warnings.push("VPN is active but no IPv4 default route was found".into()),
+        }
+    }
+
+    if let Some(dev) =
+        ipv6_default_iface(&fs::read_to_string("/proc/net/ipv6_route").unwrap_or_default())
+    {
+        if st.active.contains(&Module::Ipv6) {
+            leaks.push(format!(
+                "IPv6 is disabled but `{dev}` still has a default route"
+            ));
+        } else if st.active.contains(&Module::Vpn) && !is_tunnel(&dev) {
+            leaks.push(format!(
+                "VPN is active but the IPv6 default route goes through `{dev}`"
+            ));
+        }
+    }
+
+    let up: Vec<String> = mac::physical_ifaces()
+        .into_iter()
+        .filter(|dev| link_is_up(dev))
+        .collect();
+    if up.len() > 1 {
+        warnings.push(format!(
+            "multiple physical interfaces are up ({}); traffic can egress through any of them",
+            up.join(", ")
+        ));
+    }
+}
+
 fn check_tunnel(st: &State, leaks: &mut Vec<String>, warnings: &mut Vec<String>) {
     if st.active.contains(&Module::Vpn) && !vpn::holds(st) {
         leaks.push("VPN interface is missing or not a WireGuard interface".into());
@@ -235,6 +314,7 @@ pub fn run(lang: Lang, json: bool) -> Result<()> {
     check_identity(&st, &mut leaks);
     check_memory(&mut warnings);
     check_tunnel(&st, &mut leaks, &mut warnings);
+    check_routes(&st, &mut leaks, &mut warnings);
     check_tor(&st, lang, &mut leaks, &mut warnings, &mut notes);
 
     let report = Report {
@@ -284,4 +364,44 @@ pub fn run(lang: Lang, json: bool) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_ipv4_default_route() {
+        let text =
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+                    wlan0\t00000000\t0100A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n\
+                    wlan0\t0000A8C0\t00000000\t0001\t0\t0\t600\t00FFFFFF\t0\t0\t0\n";
+        assert_eq!(default_route_iface(text).as_deref(), Some("wlan0"));
+    }
+
+    #[test]
+    fn no_default_route_is_none() {
+        let text =
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+                    wlan0\t0000A8C0\t00000000\t0001\t0\t0\t600\t00FFFFFF\t0\t0\t0\n";
+        assert!(default_route_iface(text).is_none());
+    }
+
+    #[test]
+    fn finds_ipv6_default_route() {
+        let text = "00000000000000000000000000000000 00 00000000000000000000000000000000 00 \
+                    00000000000000000000000000000000 00000400 00000001 00000000 00000003 wg0\n\
+                    20010db8000000000000000000000001 80 00000000000000000000000000000000 00 \
+                    00000000000000000000000000000000 00000400 00000001 00000000 00000001 wlan0\n";
+        assert_eq!(ipv6_default_iface(text).as_deref(), Some("wg0"));
+    }
+
+    #[test]
+    fn only_tunnel_names_are_tunnels() {
+        assert!(is_tunnel("wg0"));
+        assert!(is_tunnel("tun0"));
+        assert!(is_tunnel("proton0"));
+        assert!(!is_tunnel("wlan0"));
+        assert!(!is_tunnel("enp3s0"));
+    }
 }
