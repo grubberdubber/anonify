@@ -116,6 +116,6 @@ mod tests {
     #[test]
     fn ignores_disconnected_devices() {
         let out = "wlan0:wifi:disconnected\neth0:ethernet:unavailable\n";
-        assert!(parse_nm_devices(out).is_empty());
+        assert_eq!(parse_nm_devices(out).len(), 0);
     }
 }

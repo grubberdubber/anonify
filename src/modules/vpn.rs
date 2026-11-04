@@ -256,6 +256,6 @@ mod tests {
     fn detects_wg_quick_hooks_case_insensitively() {
         assert!(hook_keys("[Interface]\nPostUp = echo hi\n").contains(&"PostUp"));
         assert!(hook_keys("[Interface]\nsaveconfig=true\n").contains(&"saveconfig"));
-        assert!(hook_keys("[Interface]\nPrivateKey = x\n").is_empty());
+        assert_eq!(hook_keys("[Interface]\nPrivateKey = x\n").len(), 0);
     }
 }

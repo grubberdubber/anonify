@@ -176,7 +176,8 @@ mod tests {
 
     #[test]
     fn parses_empty_swaps() {
-        assert!(parse_swaps("Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n").is_empty());
+        let header = "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n";
+        assert_eq!(parse_swaps(header).len(), 0);
     }
 
     #[test]
@@ -213,7 +214,7 @@ mod tests {
             entry("/dev/zram0", SwapKind::Memory),
             entry("/dev/dm-1", SwapKind::Encrypted),
         ]);
-        assert!(warnings.is_empty());
+        assert_eq!(warnings.len(), 0, "zram y dm-crypt no deben avisar");
 
         let warnings = warnings_for(vec![
             entry("/dev/nvme0n1p3", SwapKind::Plain),
