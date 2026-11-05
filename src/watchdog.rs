@@ -10,7 +10,7 @@
 //! state lock, run `disable()`, print messages). Doing any of that from an
 //! actual signal handler would be undefined behavior.
 
-use crate::i18n::{tr, Lang};
+use crate::i18n::{Lang, tr};
 use std::sync::mpsc;
 use std::time::Duration;
 

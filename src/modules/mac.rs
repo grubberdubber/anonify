@@ -13,7 +13,7 @@
 //! puede cambiar, falla y se revierte, para no dar una falsa sensación de
 //! anonimato parcial.
 use crate::{state::State, sys};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::ValueEnum;
 use rand::Rng;
 use std::collections::BTreeMap;
@@ -135,7 +135,7 @@ pub fn physical_ifaces() -> Vec<String> {
 
 /// MAC unicast + localmente administrada: no representa a ningún fabricante.
 fn random_mac() -> String {
-    let mut b: [u8; 6] = rand::thread_rng().gen();
+    let mut b: [u8; 6] = rand::rng().random();
     b[0] = (b[0] & 0xfe) | 0x02;
     b.iter()
         .map(|x| format!("{x:02x}"))
@@ -149,13 +149,13 @@ fn with_prefix(prefix: &str) -> String {
         // `ip link`, así que se cae al valor seguro.
         return random_mac();
     }
-    let tail: [u8; 3] = rand::thread_rng().gen();
+    let tail: [u8; 3] = rand::rng().random();
     format!("{prefix}:{:02x}:{:02x}:{:02x}", tail[0], tail[1], tail[2])
 }
 
 fn random_vendor_prefix() -> &'static str {
-    let set = ALL_OUIS[rand::thread_rng().gen_range(0..ALL_OUIS.len())];
-    set[rand::thread_rng().gen_range(0..set.len())]
+    let set = ALL_OUIS[rand::rng().random_range(0..ALL_OUIS.len())];
+    set[rand::rng().random_range(0..set.len())]
 }
 
 /// MAC a aplicar según la política elegida.
@@ -168,7 +168,7 @@ pub fn generate(vendor: Vendor) -> String {
             if prefixes.is_empty() {
                 return random_mac();
             }
-            with_prefix(prefixes[rand::thread_rng().gen_range(0..prefixes.len())])
+            with_prefix(prefixes[rand::rng().random_range(0..prefixes.len())])
         }
     }
 }

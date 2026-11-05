@@ -23,14 +23,11 @@
 //! Tampoco se toca `/etc/localtime` ni el reloj del sistema.
 use super::bwrap;
 use crate::sys;
-use anyhow::{bail, Context, Result};
-use std::io::Write;
-use std::net::{SocketAddr, TcpStream};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use anonify::browser as browser_lib;
+use anyhow::{Context, Result, bail};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 /// Opciones de endurecimiento del proceso hijo.
 pub struct Sandbox {
@@ -368,202 +365,21 @@ pub fn proton(sandbox: &Sandbox, isolate: Option<&Isolate>) -> Result<()> {
             return spawn_detached(c, &[], sandbox, isolate);
         }
     }
-    bail!("no encontré app de Proton VPN (AUR: proton-vpn-gtk-app). Alternativa: --vpn-conf con un .conf WireGuard")
-}
-
-/// Preferencias que se escriben en el `user.js` del perfil efímero.
-///
-/// El objetivo no es “endurecer Firefox” en abstracto, sino cerrar las vías
-/// por las que un sitio ve la máquina o la sesión real: WebRTC (IP local),
-/// DNS en claro, prefetch/especulación, telemetría y servicios que consultan
-/// a terceros, huella de canvas/pantalla/fuentes, y cualquier dato que
-/// sobreviva a la sesión. Nada de esto toca el Firefox del usuario ni el
-/// sistema: es un perfil nuevo en tmpfs.
-const FIREFOX_BASE_PREFS: &[&str] = &[
-    "// Perfil efímero generado por anonify. Vive en tmpfs y no se borra:",
-    "// desaparece al reiniciar. No modifica tu perfil normal de Firefox.",
-    "",
-    "// --- Huella del navegador y de la máquina ---",
-    "user_pref(\"privacy.resistFingerprinting\", true);",
-    "user_pref(\"privacy.resistFingerprinting.letterboxing\", true);",
-    "user_pref(\"privacy.firstparty.isolate\", true);",
-    "user_pref(\"privacy.trackingprotection.enabled\", true);",
-    "user_pref(\"privacy.trackingprotection.socialtracking.enabled\", true);",
-    "user_pref(\"webgl.disabled\", true);",
-    "user_pref(\"dom.battery.enabled\", false);",
-    "user_pref(\"device.sensors.enabled\", false);",
-    "user_pref(\"media.navigator.enabled\", false);",
-    "user_pref(\"geo.enabled\", false);",
-    "user_pref(\"permissions.default.geo\", 2);",
-    "user_pref(\"permissions.default.desktop-notification\", 2);",
-    "",
-    "// --- Fugas de red que no pasan por el proxy ---",
-    "user_pref(\"media.peerconnection.enabled\", false);",
-    "user_pref(\"network.dns.disableIPv6\", true);",
-    "user_pref(\"network.trr.mode\", 5);",
-    "user_pref(\"network.captive-portal-service.enabled\", false);",
-    "user_pref(\"network.connectivity-service.enabled\", false);",
-    "user_pref(\"network.dns.disablePrefetch\", true);",
-    "user_pref(\"network.prefetch-next\", false);",
-    "user_pref(\"network.predictor.enabled\", false);",
-    "user_pref(\"network.http.speculative-parallel-limit\", 0);",
-    "user_pref(\"browser.places.speculativeConnect.enabled\", false);",
-    "user_pref(\"beacon.enabled\", false);",
-    "user_pref(\"browser.send_pings\", false);",
-    "user_pref(\"network.http.referer.XOriginTrimmingPolicy\", 2);",
-    "user_pref(\"security.OCSP.enabled\", 0);",
-    "",
-    "// --- Servicios y telemetría que hablan con terceros ---",
-    "user_pref(\"toolkit.telemetry.enabled\", false);",
-    "user_pref(\"toolkit.telemetry.unified\", false);",
-    "user_pref(\"toolkit.telemetry.archive.enabled\", false);",
-    "user_pref(\"datareporting.healthreport.uploadEnabled\", false);",
-    "user_pref(\"datareporting.policy.dataSubmissionEnabled\", false);",
-    "user_pref(\"app.shield.optoutstudies.enabled\", false);",
-    "user_pref(\"app.normandy.enabled\", false);",
-    "user_pref(\"browser.ping-centre.telemetry\", false);",
-    "user_pref(\"browser.newtabpage.activity-stream.feeds.telemetry\", false);",
-    "user_pref(\"browser.newtabpage.activity-stream.telemetry\", false);",
-    "user_pref(\"browser.safebrowsing.malware.enabled\", false);",
-    "user_pref(\"browser.safebrowsing.phishing.enabled\", false);",
-    "user_pref(\"browser.safebrowsing.downloads.remote.enabled\", false);",
-    "user_pref(\"browser.urlbar.suggest.searches\", false);",
-    "user_pref(\"browser.search.suggest.enabled\", false);",
-    "user_pref(\"browser.region.network.url\", \"\");",
-    "user_pref(\"browser.region.update.enabled\", false);",
-    "user_pref(\"extensions.pocket.enabled\", false);",
-    "user_pref(\"identity.fxaccounts.enabled\", false);",
-    "user_pref(\"breakpad.reportURL\", \"\");",
-    "user_pref(\"browser.tabs.crashReporting.sendReport\", false);",
-    "",
-    "// --- Nada que sobreviva a la sesión ---",
-    "user_pref(\"browser.privatebrowsing.autostart\", true);",
-    "user_pref(\"browser.cache.disk.enable\", false);",
-    "user_pref(\"browser.cache.offline.enable\", false);",
-    "user_pref(\"browser.formfill.enable\", false);",
-    "user_pref(\"browser.sessionstore.privacy_level\", 2);",
-    "user_pref(\"extensions.getAddons.cache.enabled\", false);",
-    "",
-    "// --- Primer arranque silencioso (perfil nuevo en cada ejecución) ---",
-    "user_pref(\"browser.shell.checkDefaultBrowser\", false);",
-    "user_pref(\"browser.aboutwelcome.enabled\", false);",
-    "user_pref(\"browser.startup.homepage_override.mstone\", \"ignore\");",
-];
-
-/// `user.js` completo. Con `socks_port` todo el tráfico (incluida la
-/// resolución DNS) va al SOCKS local de Tor; sin él se deja la red del
-/// sistema tal cual, que es lo correcto si hay una VPN activa pero no Tor.
-fn firefox_prefs(socks_port: Option<u16>) -> String {
-    let mut out = String::new();
-    for line in FIREFOX_BASE_PREFS {
-        out.push_str(line);
-        out.push('\n');
-    }
-    if let Some(port) = socks_port {
-        out.push_str("\n// --- Todo por el SOCKS local de Tor (DNS remoto, sin fugas) ---\n");
-        out.push_str("user_pref(\"network.proxy.type\", 1);\n");
-        out.push_str("user_pref(\"network.proxy.socks\", \"127.0.0.1\");\n");
-        out.push_str("user_pref(\"network.proxy.socks_port\", ");
-        out.push_str(&port.to_string());
-        out.push_str(");\n");
-        out.push_str("user_pref(\"network.proxy.socks_version\", 5);\n");
-        out.push_str("user_pref(\"network.proxy.socks_remote_dns\", true);\n");
-    } else {
-        out.push_str("\n// Sin SOCKS de Tor: el navegador usa la red del sistema.\n");
-        out.push_str("user_pref(\"network.proxy.type\", 0);\n");
-    }
-    out
-}
-
-/// Solo `http(s)://` sin espacios ni caracteres de control: el argumento no
-/// pasa por una shell, pero un valor que empiece por `-` sería otra opción de
-/// Firefox, y una URL con saltos de línea rompería el `user.js` de la nada.
-fn valid_url(url: &str) -> bool {
-    !url.starts_with('-')
-        && url.len() <= 2048
-        && (url.starts_with("http://") || url.starts_with("https://"))
-        && !url.chars().any(|c| c.is_control() || c.is_whitespace())
-}
-
-/// ¿Hay algo escuchando en el SOCKS de Tor? Sin root no se puede leer
-/// `state.json` ni preguntar a `nft`, pero un connect a loopback no requiere
-/// privilegios y no envía datos ni resuelve nada. Un falso positivo solo
-/// significa que el navegador apunta a un SOCKS que no es Tor: no hay fuga,
-/// simplemente no navega.
-fn tor_socks_port() -> Option<u16> {
-    const PORT: u16 = 9050;
-    let addr = SocketAddr::from(([127, 0, 0, 1], PORT));
-    TcpStream::connect_timeout(&addr, Duration::from_millis(300))
-        .ok()
-        .map(|_| PORT)
-}
-
-/// Directorio del perfil: el tmpfs del usuario (`/run/user/<uid>`), que
-/// `bwrap` ya monta dentro del sandbox, o `/dev/shm`. Nunca el disco. Bajo
-/// `sudo` se usa el runtime del usuario destino, no el de root: si no, el
-/// perfil quedaría fuera del sandbox y además sería ilegible para el
-/// navegador, que corre sin privilegios.
-fn browser_profile_root() -> PathBuf {
-    let uid = target_user()
-        .ok()
-        .flatten()
-        .map_or_else(sys::euid, |u| u.uid);
-    let runtime = PathBuf::from(format!("/run/user/{uid}"));
-    if runtime.is_dir() {
-        return runtime;
-    }
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(|| PathBuf::from("/dev/shm"))
-}
-
-/// Crea el perfil con `0700` y escribe `user.js` con `0600`. No se elimina
-/// después: borrar el historial de esa sesión sería justo lo que `AGENTS.md`
-/// prohíbe. Al vivir en tmpfs, no sobrevive a un reinicio.
-fn create_browser_profile(prefs: &str) -> Result<PathBuf> {
-    let root = browser_profile_root();
-    if !root.is_dir() {
-        bail!(
-            "no hay un tmpfs para el perfil: ni XDG_RUNTIME_DIR ni {} existen",
-            root.display()
-        );
-    }
-    let dir = root.join(format!("anonify-browser-{:016x}", rand::random::<u64>()));
-    let mut builder = std::fs::DirBuilder::new();
-    builder.mode(0o700);
-    builder
-        .create(&dir)
-        .with_context(|| format!("no se pudo crear el perfil {}", dir.display()))?;
-    let user_js = dir.join("user.js");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&user_js)
-        .with_context(|| format!("no se pudo escribir {}", user_js.display()))?;
-    file.write_all(prefs.as_bytes())
-        .with_context(|| format!("no se pudo escribir {}", user_js.display()))?;
-    drop(file);
-    // Bajo `sudo` los archivos son de root; el navegador corre como el
-    // usuario real y necesita poder escribir su perfil.
-    if let Some(user) = target_user()? {
-        std::os::unix::fs::chown(&dir, Some(user.uid), Some(user.gid))
-            .with_context(|| format!("no se pudo ceder {} al usuario", dir.display()))?;
-        std::os::unix::fs::chown(&user_js, Some(user.uid), Some(user.gid))
-            .with_context(|| format!("no se pudo ceder {} al usuario", user_js.display()))?;
-    }
-    Ok(dir)
+    bail!(
+        "no encontré app de Proton VPN (AUR: proton-vpn-gtk-app). Alternativa: --vpn-conf con un .conf WireGuard"
+    )
 }
 
 /// Navegador con perfil efímero y prefs de anonimato. No requiere root.
 ///
 /// Reemplaza el proceso (como `launch exec`): así el sandbox `--isolate`
 /// sigue vivo mientras el navegador lo esté (`bwrap --die-with-parent`) y el
-/// perfil no queda huérfano.
+/// perfil no queda huérfano. La lógica portable (prefs, creación del perfil,
+/// detección del SOCKS) vive en `anonify::browser`, compartida con el binario
+/// `anonify-browser` que corre en Windows y macOS.
 pub fn browser(url: Option<&str>, sandbox: &Sandbox, isolate: Option<&Isolate>) -> Result<()> {
     if let Some(u) = url {
-        if !valid_url(u) {
+        if !browser_lib::is_valid_url(u) {
             bail!("URL inválida `{u}`: solo http:// o https://, sin espacios ni saltos de línea");
         }
     }
@@ -578,8 +394,10 @@ pub fn browser(url: Option<&str>, sandbox: &Sandbox, isolate: Option<&Isolate>) 
         .find(|p| sys::have(p))
         .context("no encontré un navegador compatible: instala librewolf, firefox o firefox-esr")?;
 
-    let socks = tor_socks_port();
-    let profile = create_browser_profile(&firefox_prefs(socks))?;
+    let socks = browser_lib::tor_socks_port();
+    let owner = target_user()?.map(|u| (u.uid, u.gid));
+    let profile =
+        browser_lib::create_profile(&browser_profile_root(), &browser_lib::prefs(socks), owner)?;
     let mut args = vec![
         "--no-remote".to_string(),
         "--new-instance".to_string(),
@@ -597,11 +415,29 @@ pub fn browser(url: Option<&str>, sandbox: &Sandbox, isolate: Option<&Isolate>) 
         }
         None => eprintln!(
             "[!] no hay SOCKS de Tor en 127.0.0.1:9050: el navegador usará la red del \
-             sistema tal como esté. Sin tor/vpn verás tu IP real; activa `tor` o `vpn` primero"
+             sistema tal cual. Sin tor/vpn verás tu IP real; activa `tor` o `vpn` primero"
         ),
     }
     eprintln!("[*] el perfil no se borra al salir: vive en tmpfs y desaparece al reiniciar");
     exec_replace(prog, &args, sandbox, isolate)
+}
+
+/// Perfil en el tmpfs del usuario destino (`/run/user/<uid>`), que `bwrap`
+/// monta dentro del sandbox, o `/dev/shm`. Bajo `sudo` se usa el runtime del
+/// usuario real, no el de root.
+fn browser_profile_root() -> PathBuf {
+    let uid = target_user()
+        .ok()
+        .flatten()
+        .map_or_else(sys::euid, |u| u.uid);
+    let runtime = PathBuf::from(format!("/run/user/{uid}"));
+    if runtime.is_dir() {
+        return runtime;
+    }
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(|| PathBuf::from("/dev/shm"))
 }
 
 #[cfg(test)]
@@ -769,55 +605,5 @@ mod tests {
         assert_eq!(env.get("TZ").map(String::as_str), Some("Europe/Madrid"));
         assert_eq!(env.get("LANG").map(String::as_str), Some("en_US.UTF-8"));
         assert_eq!(env.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
-    }
-
-    #[test]
-    fn browser_with_tor_sends_dns_and_http_through_socks() {
-        let prefs = firefox_prefs(Some(9050));
-        for expected in [
-            "user_pref(\"network.proxy.type\", 1);",
-            "user_pref(\"network.proxy.socks_port\", 9050);",
-            "user_pref(\"network.proxy.socks_remote_dns\", true);",
-            "user_pref(\"media.peerconnection.enabled\", false);",
-            "user_pref(\"privacy.resistFingerprinting\", true);",
-            "user_pref(\"toolkit.telemetry.enabled\", false);",
-            "user_pref(\"browser.privatebrowsing.autostart\", true);",
-            "user_pref(\"network.trr.mode\", 5);",
-        ] {
-            assert!(prefs.contains(expected), "falta {expected}");
-        }
-        assert!(!prefs.contains("network.proxy.type\", 0"));
-    }
-
-    #[test]
-    fn browser_without_tor_uses_the_system_network() {
-        let prefs = firefox_prefs(None);
-        assert!(prefs.contains("user_pref(\"network.proxy.type\", 0);"));
-        assert!(!prefs.contains("network.proxy.socks_port"));
-    }
-
-    #[test]
-    fn every_generated_line_is_a_comment_or_user_pref() {
-        for prefs in [firefox_prefs(None), firefox_prefs(Some(9050))] {
-            for line in prefs.lines().filter(|l| !l.is_empty()) {
-                assert!(
-                    line.starts_with("//")
-                        || (line.starts_with("user_pref(\"") && line.ends_with(");")),
-                    "línea inválida en user.js: {line}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn browser_urls_are_plain_http() {
-        assert!(valid_url("https://example.org"));
-        assert!(valid_url("http://127.0.0.1:8080/x?y=1"));
-        assert!(!valid_url("-headless"));
-        assert!(!valid_url("file:///etc/passwd"));
-        assert!(!valid_url("about:config"));
-        assert!(!valid_url("https://example.org/\nuser_pref(\"x\", true);"));
-        assert!(!valid_url("https://example.org/a b"));
-        assert!(!valid_url(&format!("https://{}.org", "a".repeat(2048))));
     }
 }

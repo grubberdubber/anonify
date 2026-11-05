@@ -8,7 +8,7 @@
 //! `sysctl` runtime. anonify documenta ese efecto y ejecuta `wg-quick down` al
 //! restaurar; no modifica perfiles persistentes de `NetworkManager`.
 use crate::{mem, state::State, sys};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::os::unix::fs::PermissionsExt;

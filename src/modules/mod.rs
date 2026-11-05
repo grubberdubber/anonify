@@ -3,7 +3,7 @@
 //! Por política de proyecto no existen módulos de borrado/alteración de logs,
 //! auditoría, timestamps o evidencia. La lista de módulos es deliberadamente
 //! de privacidad de red y hardening reversible; ver `AGENTS.md`.
-use crate::i18n::{tr, Lang};
+use crate::i18n::{Lang, tr};
 use crate::state::State;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
@@ -14,6 +14,7 @@ pub mod dns;
 pub mod hostname;
 pub mod ipv6;
 pub mod killswitch;
+pub mod lan;
 pub mod launch;
 pub mod mac;
 pub mod sysctl;
@@ -32,6 +33,7 @@ pub enum Module {
     Tor,
     Dns,
     Killswitch,
+    Lan,
 }
 
 impl Module {
@@ -45,6 +47,7 @@ impl Module {
         Module::Tor,
         Module::Dns,
         Module::Killswitch,
+        Module::Lan,
     ];
 
     /// Modules enabled by `--all` (vpn and killswitch are explicit opt-in).
@@ -71,6 +74,7 @@ impl Module {
             Module::Dns => dns::holds(st),
             Module::Tor => tor::alive(),
             Module::Killswitch => killswitch::holds(st),
+            Module::Lan => lan::holds(),
         }
     }
 
@@ -115,6 +119,11 @@ impl Module {
                 lang,
                 "kill switch: VPN/Tor tunnel only",
                 "kill switch: solo túnel VPN / Tor",
+            ),
+            Module::Lan => tr(
+                lang,
+                "silences mDNS/LLMNR/SSDP/NetBIOS discovery on the LAN",
+                "silencia mDNS/LLMNR/SSDP/NetBIOS en la LAN",
             ),
         }
     }

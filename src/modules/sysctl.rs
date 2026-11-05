@@ -5,7 +5,7 @@
 //! restauración falla, el valor original permanece en `State` para reintentar
 //! con `anonify restore`.
 use crate::state::State;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 

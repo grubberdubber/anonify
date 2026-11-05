@@ -76,6 +76,7 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 | `tor`        | Fail-closed Tor setup: installs the redirecting/blocking `nftables` table **before** bootstrap, then runs an isolated Tor instance. `--tor-bridges <FILE>` adds bridges and pluggable transports (obfs4, snowflake, meek, webtunnel) for restrictive networks. | Tears down the `nftables` table and stops the Tor process it owns.      |
 | `vpn`        | Brings up a WireGuard/ProtonVPN tunnel via `wg-quick`; resolves the endpoint to numeric IPv4/IPv6 addresses for the kill switch.                    | Runs `wg-quick down`.                                                   |
 | `killswitch` | Strict firewall allowing only loopback, DHCP, VPN interfaces (`wg*`, `tun*`, `proton*`), the resolved VPN endpoint, and Tor daemon traffic.         | Deletes the `inet anonify_ks` table.                                    |
+| `lan`        | Silences local service discovery (`mDNS`/5353, `LLMNR`/5355, `SSDP`/1900, `NetBIOS`/137-139, `WS-Discovery`/3702) in an `nftables` output chain with `policy accept`: the LAN stops learning the hostname and services, and the internet is never cut. | Deletes the `inet anonify_lan` table.                                    |
 | `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN, kill-switch state, default routes and extra physical interfaces. Public-IP checks go through Tor and are skipped if no anonymity layer is active. `--json` emits the same report for scripts. | Read-only; no changes.                                                  |
 | `launch`     | Starts apps with a whitelisted environment (`PATH`, display/session vars only), `TZ`/`LANG`/`LC_*` set in the child, `no_new_privs`, and a dropped capability bounding set. Under `sudo` it never runs as root. `--isolate` adds a `bubblewrap` sandbox (read-only `/usr` and `/etc`, private `/tmp`, `/dev/shm` and `HOME`, own hostname, no network) and points `XDG_CACHE_HOME`/`TMPDIR` at that tmpfs. `launch browser` opens Firefox/LibreWolf with a throwaway, leak-hardened profile in tmpfs and the local Tor SOCKS when it is up. | Process exit; nothing persists.                                          |
 | `rotate`     | Re-randomizes the MAC (same vendor policy) and hostname of the active `mac`/`hostname` modules. | The saved originals are untouched, so `restore` still works.            |
@@ -96,7 +97,7 @@ other programs, and never touches their logging or audit state.
 ## Requirements & Installation
 
 ```bash
-# 1. System dependencies
+# 1. System dependencies (Rust 1.85+ / edition 2024)
 sudo pacman -S --needed rust tor nftables wireguard-tools openresolv iproute2 curl bubblewrap util-linux
 # Optional: pluggable transports for `--tor-bridges` (obfs4, snowflake, ...)
 sudo pacman -S --needed obfs4proxy
@@ -109,6 +110,27 @@ cargo build --release
 # 3. Install the binary
 sudo install -m755 target/release/anonify /usr/local/bin/
 ```
+
+### Windows and macOS: `anonify-browser`
+
+The network engine is Linux-only: `nftables`, `sysctl`, `NetworkManager`,
+`wg-quick` and Tor supervision have no portable equivalent, and a Windows
+firewall (`WFP`) backend is a separate milestone with its own threat model
+(see `docs/platforms.md`). What *is* portable is the browser hardening:
+
+```bash
+cargo install --path . --bin anonify-browser
+anonify-browser https://example.org
+```
+
+`anonify-browser` builds and runs on Windows and macOS, needs no administrator
+rights and never touches system configuration. It writes the same hardened
+`user.js` (WebRTC off, DNS through the local Tor SOCKS when it is listening,
+no telemetry, private browsing) and starts Firefox/LibreWolf with it. On
+Windows the profile lives under `%TEMP%\anonify` instead of tmpfs: it never
+holds history or cache, but the folder itself stays until temp cleanup.
+What you lose versus Linux: no MAC, DNS, IPv6 or firewall control, so pair it
+with a VPN or Tor at the system level.
 
 ## Usage
 
@@ -133,6 +155,9 @@ sudo anonify rotate
 
 # VPN with a strict kill switch
 sudo anonify enable vpn killswitch --vpn-conf ~/my-vpn/mullvad-es.conf
+
+# Stop announcing the machine (mDNS/LLMNR/SSDP/NetBIOS) to the local network
+sudo anonify enable lan
 
 # Tor behind bridges / a pluggable transport (DPI-heavy or filtered networks)
 sudo anonify enable tor --tor-bridges ~/bridges.txt
@@ -305,7 +330,8 @@ export ANONIFY_LANG=es
 - [x] **Timezone & locale masking for launched apps**: set `TZ`, `LANG`, and `LC_*` only in the child process environment; never alter the system clock or log timestamps.
 - [ ] **User-initiated metadata scrubber**: `anonify scrub --output <copy> <file>` to strip EXIF/geolocation from an explicit copy, leaving the original untouched.
 - [ ] **Multi-network support**: optional routing through I2P/Lokinet in addition to Tor.
-- [x] **Ephemeral browser profiles** (`launch browser`): throwaway profile in `/run/user/<uid>`, hardened `user.js`, Tor SOCKS forced when available. Never written to disk and never deleted by `anonify`.
+- [x] **Ephemeral browser profiles** (`launch browser`, `anonify-browser`): throwaway profile in `/run/user/<uid>`, hardened `user.js`, Tor SOCKS forced when available. Never written to disk and never deleted by `anonify`. Portable binary on Windows/macOS.
+- [ ] **Windows network engine**: WFP/`netsh advfirewall` firewall, DNS and Tor Expert Bundle behind the same reversible-state model (`docs/platforms.md`).
 - [ ] **DNS leak matrix**: DoT/DoH local resolver mode and per-interface leak tests.
 
 > **Not on the roadmap, by policy:** log deletion, journald/audit suppression, timestamp manipulation, shell-history wiping, process/file hiding, forensic-tool blocking, or any “anti-forensic” cleanup. See [AGENTS.md](AGENTS.md).

@@ -12,11 +12,11 @@
 //! completa y termina: nunca se queda reintentando cambios sobre un sistema
 //! que otra herramienta está reconfigurando.
 use crate::{
-    i18n::{tr, Lang},
+    i18n::{Lang, tr},
     modules::Module,
     state::State,
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::time::Duration;
 
 pub struct Options {

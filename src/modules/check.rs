@@ -10,13 +10,13 @@
 //! informativas (IP de salida, comprobaciones omitidas) van a `notes`, nunca a
 //! `leaks`: una comprobación omitida no es una fuga demostrada.
 use crate::{
-    i18n::{tr, Lang},
+    i18n::{Lang, tr},
     mem,
-    modules::{dns, hostname, ipv6, killswitch, mac, sysctl, tor, vpn, Module},
+    modules::{Module, dns, hostname, ipv6, killswitch, mac, sysctl, tor, vpn},
     state::State,
     sys,
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Serialize;
 use std::fs;
 use std::net::IpAddr;
@@ -372,8 +372,7 @@ mod tests {
 
     #[test]
     fn finds_ipv4_default_route() {
-        let text =
-            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+        let text = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
                     wlan0\t00000000\t0100A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0\n\
                     wlan0\t0000A8C0\t00000000\t0001\t0\t0\t600\t00FFFFFF\t0\t0\t0\n";
         assert_eq!(default_route_iface(text).as_deref(), Some("wlan0"));
@@ -381,8 +380,7 @@ mod tests {
 
     #[test]
     fn no_default_route_is_none() {
-        let text =
-            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
+        let text = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n\
                     wlan0\t0000A8C0\t00000000\t0001\t0\t0\t600\t00FFFFFF\t0\t0\t0\n";
         assert!(default_route_iface(text).is_none());
     }

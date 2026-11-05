@@ -22,7 +22,7 @@
 //! corriera como root, el `HOME`/`/tmp` del sandbox quedarían root-owned y la
 //! aplicación, ya sin privilegios, no podría escribir su perfil.
 use crate::sys;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
 /// Directorio de cachés de la aplicación dentro del sandbox (tmpfs).
@@ -321,9 +321,10 @@ mod tests {
             .windows(3)
             .any(|w| w[0] == "--chmod" && w[1] == "1777" && w[2] == "/tmp");
         assert!(tmp_chmod, "/tmp debe quedar escribible por la app");
-        assert!(argv
-            .windows(2)
-            .any(|w| w[0] == "--dir" && w[1] == CACHE_DIR));
+        assert!(
+            argv.windows(2)
+                .any(|w| w[0] == "--dir" && w[1] == CACHE_DIR)
+        );
     }
 
     #[test]

@@ -11,7 +11,7 @@
 //! `disable` primero elimina la tabla (desbloquea la red) y después detiene
 //! únicamente el proceso Tor que anonify inició. Nunca mata un PID ajeno.
 use crate::{state::DIR, sys};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::os::unix::fs::PermissionsExt;
@@ -180,7 +180,9 @@ fn parse_bridges(text: &str) -> Result<Vec<String>> {
         }
         let lower = line.to_ascii_lowercase();
         if !(lower.starts_with("bridge ") || lower.starts_with("clienttransportplugin ")) {
-            bail!("línea no permitida en el archivo de bridges: `{line}` (usa `Bridge ...` o `ClientTransportPlugin ...`)");
+            bail!(
+                "línea no permitida en el archivo de bridges: `{line}` (usa `Bridge ...` o `ClientTransportPlugin ...`)"
+            );
         }
         lines.push(line.to_string());
     }

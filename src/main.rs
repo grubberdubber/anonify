@@ -1,5 +1,7 @@
 mod banner;
-mod i18n;
+// `i18n` lives in the portable library so the Windows/macOS binary shares the
+// same translations; re-exported here so `crate::i18n` keeps working.
+pub use anonify::i18n;
 mod mem;
 mod modules;
 mod state;
@@ -7,10 +9,10 @@ mod sys;
 mod watch;
 mod watchdog;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use i18n::{tr, Lang};
-use modules::{check, dns, hostname, ipv6, killswitch, launch, mac, sysctl, tor, vpn, Module};
+use i18n::{Lang, tr};
+use modules::{Module, check, dns, hostname, ipv6, killswitch, lan, launch, mac, sysctl, tor, vpn};
 use state::State;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -237,6 +239,7 @@ fn activate(
         Module::Dns => dns::enable(st),
         Module::Tor => tor::enable(bridges),
         Module::Killswitch => killswitch::enable(st),
+        Module::Lan => lan::enable(),
     }
 }
 
@@ -250,6 +253,7 @@ fn deactivate(m: Module, st: &mut State) -> Result<()> {
         Module::Dns => dns::disable(st),
         Module::Tor => tor::disable(),
         Module::Killswitch => killswitch::disable(),
+        Module::Lan => lan::disable(),
     }
 }
 

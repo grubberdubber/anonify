@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `lan`: silences local service discovery so the LAN stops learning the
+  machine's hostname and services. A dedicated `inet anonify_lan` table drops
+  outbound `mDNS` (5353), `LLMNR` (5355), `SSDP` (1900), `NetBIOS`
+  (137/138/139) and `WS-Discovery` (3702) with `policy accept`, so it can
+  never cut internet access; nothing is written to any daemon configuration
+  and `restore` just deletes the table. DHCP still announces the hostname when
+  the client asks for it, which is documented instead of hidden.
+- `anonify-browser`: a portable binary (Linux, Windows, macOS) that opens
+  Firefox/LibreWolf with the same throwaway hardened profile without root,
+  UAC or any system change. The profile logic moved to a library shared with
+  `launch browser`. On Windows it lives under `%TEMP%\anonify` because there
+  is no tmpfs; permanent private browsing keeps history and cache out of it.
 - `launch browser`: opens LibreWolf/Firefox/`firefox-esr` with a throwaway
   profile in `/run/user/<uid>` (tmpfs, `0700`, `user.js` `0600`) instead of the
   user's real profile. The generated `user.js` closes the leaks a proxy alone
@@ -150,3 +162,13 @@ All notable changes to this project are documented here. The format follows
   suppression, timestamp manipulation, history wiping, or evidence tampering.
 - `check`, `README.md`, `AGENTS.md`, and contribution policy explicitly reject
   anti-forensic features.
+
+### Changed
+
+- Rust 2024 edition, declared MSRV (`rust-version = "1.85"`) verified in CI,
+  and `[lints.rust]`/`[lints.clippy]` in `Cargo.toml` (all + pedantic) so
+  `cargo clippy` enforces the same rules editors and CI see. `clap` upgraded
+  to 4.5/4.6 and `rand` to 0.9 (`gen` → `random`, `gen_range` →
+  `random_range`).
+- CI runs a Linux matrix (stable + 1.85) and a Windows job that builds
+  `anonify-browser` and runs the portable library tests.

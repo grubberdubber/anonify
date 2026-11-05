@@ -5,7 +5,7 @@
 //! El endpoint se resuelve a IPs numéricas en `vpn::enable`/`vpn::ensure_endpoint`;
 //! nunca se interpola un hostname ni texto arbitrario en las reglas.
 use crate::{modules::vpn, state::State, sys};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fmt::Write as _;
 use std::net::IpAddr;
 

@@ -147,8 +147,10 @@ publicado deliberadamente.
 
 **Actuales:** `mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor` (con
 `--tor-bridges`), `vpn`, `killswitch`, `check`, `launch` (`--isolate` con
-`bubblewrap` y `browser` con perfil efímero en tmpfs), `rotate`, `watch`,
-`status`/`check --json`. Transversales:
+`bubblewrap` y `browser` con perfil efímero en tmpfs), `lan` (descubrimiento
+local silenciado), `rotate`, `watch`, `status`/`check --json`. Portable:
+`anonify-browser` (perfil endurecido, sin privilegios, Linux/Windows/macOS).
+Transversales:
 `mlockall`, `zeroize` de secretos y estado, y endurecimiento del proceso
 (`PR_SET_DUMPABLE=0`, `RLIMIT_CORE=0`, `PR_SET_NO_NEW_PRIVS`).
 
@@ -164,11 +166,62 @@ journald/audit, manipulación de timestamps, purga de historiales, ocultación d
 procesos/archivos, bloqueo de herramientas forenses y cualquier “limpieza
 anti-forense”.
 
-## 9. Reglas de desarrollo en Rust
+## 9. Plataformas: Linux primero, portable donde no hay kernel
 
-1. **Idiomático y riguroso.** Edición 2021+, `clippy --all-targets -D warnings
-   -W clippy::pedantic`, errores con `thiserror`/`anyhow`. Nada de `unwrap()`
-   ni `expect()` en producción.
+El motor (`mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor`, `vpn`,
+`killswitch`, `lan`, `check`, `watch`, `launch`) depende de kernel y daemons de
+Linux: `nftables`, `sysctl`, `NetworkManager`, `/run` (tmpfs), `bwrap` y
+`setpriv`. No se finge un port: en Windows/macOS solo se publica la superficie
+portable `anonify-browser`, que no pide administrador ni toca configuración del
+sistema. Un backend Windows (WFP/`netsh advfirewall` + Tor Expert Bundle) es un
+hito aparte con modelo de amenaza, reversión y revisión legal propios (ver
+`docs/platforms.md`); no se implementa nada privilegiado sin ese diseño y sin
+pruebas.
+
+Reglas del código portable:
+
+- Nada de `#[cfg]` que haga compilar en Windows un motor Linux a medias.
+- El binario portable no pide root/UAC, no escribe servicios ni registro, y no
+  promete MAC/DNS/IPv6/firewall.
+- Sin tmpfs en Windows, el perfil vive en `%TEMP%`: se documenta que el
+  directorio sobrevive, aunque no guarde historial ni caché.
+
+## 10. Catálogo de ideas evaluadas (no repetir sin argumentar)
+
+Aceptadas / en roadmap: `lan` (implementado), `doctor` (preflight de solo
+lectura), `netns` solo-Tor, DoT/DoH local, Fontconfig y CAs mínimos dentro del
+sandbox, D-Bus y X11 enmascarados en `bwrap`, `ssh-agent` efímero en
+`/run/anonify`, `scrub` de **copias**, límites con cgroups v2, build musl.
+
+Rechazadas por evidencia o registros (aunque se ofrezcan como opt-in): purga de
+portapapeles, borrado de cachés de shaders o de navegador, `journal-guard`,
+redirigir `journald` a RAM, limpieza de historiales, `swap-lock` que apaga el
+swap del sistema, `kptr`/`dmesg` para ocultar el kernel.
+
+Rechazadas por ocultamiento local o anti-forense: `sysfs-mask` (overlay sobre
+`/sys`), enmascarar térmicas/LEDs/batería, desvincular webcam/mic, `usb-guard`,
+`input-guard`, `hidepid`, nombres de proceso falsos, `cpu-timers` (RDTSC).
+
+Rechazadas por reloj o auditoría: `ntp` (pausar chrony/timesyncd) y cualquier
+cambio de reloj o zona horaria del sistema; solo se permite `TZ`/`LANG` en el
+hijo.
+
+Rechazadas por romper la red o ser teatro: `igmp-filter` (rompe multicast),
+`wifi-probes` (sin API runtime reversible), `dhcp` Option 55 (requiere config
+persistente del cliente), `entropy` (los CSPRNG modernos no dependen de
+`entropy_avail`), `arp-hardening` (frágil y sin valor de anonimato).
+
+Requieren rediseño antes de codificar: `captive` (`NetworkManager` no expone un
+“pausar checks” runtime), `bluetooth`/`rf-kill` (fuera del alcance de red y
+puede romper hardware), `audio` null-sink, `print-guard` (bloquear IPP rompe
+impresión legítima).
+
+## 11. Reglas de desarrollo en Rust
+
+1. **Idiomático y riguroso.** Edición 2024, MSRV declarada (`rust-version =
+   "1.85"`), lints `all` + `pedantic` en `Cargo.toml` y CI con stable, MSRV y
+   Windows. Errores con `thiserror`/`anyhow`. Nada de `unwrap()` ni `expect()`
+   en producción.
 2. **Cero `unsafe` innecesario.** `nix`/`rtnetlink` antes que `libc`; todo
    `unsafe` con comentario `SAFETY` que justifique la invariante.
 3. **Sin inyección de comandos.** `Command` con argumentos separados; nunca una
@@ -183,7 +236,7 @@ anti-forense”.
    `refactor:`, `test:`, `chore:`, `security:`) con el **porqué** en el cuerpo.
    Sin secretos, claves ni configuraciones personales.
 
-## 10. Checklist antes de dar algo por terminado
+## 12. Checklist antes de dar algo por terminado
 
 - [ ] No toca logs, auditoría, `journal`, historiales, timestamps, cachés,
       portapapeles ni evidencia.
@@ -199,7 +252,7 @@ anti-forense”.
       hubo decisión nueva.
 - [ ] Mensaje al usuario sin promesas absolutas y con lo que **no** protege.
 
-## 11. Si hay que rechazar una propuesta
+## 13. Si hay que rechazar una propuesta
 
 Rechazar el mecanismo, no a la persona. Explicar en una frase por qué cruza el
 límite (evidencia, observador local, auditoría, estado ajeno), ofrecer la
@@ -208,7 +261,7 @@ decirlo con claridad. Nada de implementaciones “opt-in” de algo prohibido: u
 bandera `--yes-i-know` no convierte en aceptable un borrado de evidencia ni una
 supresión de auditoría.
 
-## 12. Formato de salida esperado
+## 14. Formato de salida esperado
 
 1. Código Rust limpio, modular, listo para `src/modules/...`.
 2. Explicación del mecanismo de red/privacidad (nftables, sysctl, `unshare`,

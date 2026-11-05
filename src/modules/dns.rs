@@ -7,10 +7,10 @@
 //! peor, apuntaría a un resolver local no anónimo.
 use super::tor;
 use crate::{
-    state::{State, DIR},
+    state::{DIR, State},
     sys,
 };
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 

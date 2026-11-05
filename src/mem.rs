@@ -11,7 +11,7 @@
 //! - `swap_warnings`: auditoría de solo lectura de `/proc/swaps`. Si hay swap
 //!   en claro, las páginas de tmpfs (incluido `/run/anonify` con los valores
 //!   originales de MAC/hostname) pueden acabar escritas en disco.
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::Path;
 use zeroize::Zeroize;

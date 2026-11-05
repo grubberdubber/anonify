@@ -7,7 +7,7 @@
 //! perfil original al restaurar.
 use super::sysctl;
 use crate::{state::State, sys};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::fs;
 
 /// Dispositivos Ethernet/WiFi que `NetworkManager` tiene conectados ahora mismo.

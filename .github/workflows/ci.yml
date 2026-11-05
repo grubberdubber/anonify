@@ -13,7 +13,7 @@ env:
 
 jobs:
   check:
-    name: fmt, clippy, tests
+    name: fmt, clippy, tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +32,16 @@ jobs:
       - name: Formatting
         run: cargo fmt --all --check
 
-      - name: Clippy (pedantic, warnings are errors)
-        run: cargo clippy --all-targets -- -D warnings -W clippy::pedantic
+      # `[lints.clippy]` in Cargo.toml enables `all` + `pedantic`; `-D warnings`
+      # turns every one of them into an error.
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Tests
-        run: cargo test
+        run: cargo test --locked
 
       - name: Release build
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Namespace smoke test (when user namespaces are available)
         run: |
@@ -48,3 +50,41 @@ jobs:
           else
             echo "::warning::user namespaces unavailable; skipping kernel smoke test"
           fi
+
+  msrv:
+    name: MSRV (1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MSRV toolchain
+        uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build and test on the declared MSRV
+        run: |
+          cargo check --all-targets --locked
+          cargo test --locked
+
+  windows:
+    name: Portable binaries (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # The Linux engine (`anonify`) is not built here on purpose: it needs
+      # nftables, sysctl and NetworkManager. `anonify-browser` is the portable
+      # surface and must stay buildable and testable on Windows.
+      - name: Check portable browser binary
+        run: cargo check --bin anonify-browser --locked
+
+      - name: Test portable library
+        run: cargo test --lib --locked

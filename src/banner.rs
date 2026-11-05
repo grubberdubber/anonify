@@ -19,7 +19,7 @@
 //!      those paths — clap handles both internally and never returns to
 //!      the normal control flow otherwise).
 
-use crate::i18n::{tr, Lang};
+use crate::i18n::{Lang, tr};
 use std::io::IsTerminal;
 
 const FULL_ART: &str = r"

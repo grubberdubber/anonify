@@ -3,7 +3,7 @@
 //! Todos los subprocesos se ejecutan con `LC_ALL=C`/`LANG=C` para que la
 //! salida de herramientas como `nmcli`, `ip` o `tor` sea estable y se pueda
 //! parsear sin depender del idioma del sistema.
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};

@@ -22,6 +22,7 @@ impl Lang {
     /// Resolve the active language from an optional explicit CLI flag and
     /// the process environment. `cli_flag` should be `Some("es")`,
     /// `Some("en")`, etc. when the user passed `--lang`, or `None`.
+    #[must_use]
     pub fn resolve(cli_flag: Option<&str>) -> Self {
         if let Some(code) = cli_flag {
             return Self::from_code(code).unwrap_or(Lang::En);
@@ -61,6 +62,7 @@ impl Lang {
 
 /// Picks the right static string for the active language. Used as:
 /// `tr(lang, "English text", "Texto en español")`
+#[must_use]
 pub fn tr(lang: Lang, en: &'static str, es: &'static str) -> &'static str {
     match lang {
         Lang::En => en,

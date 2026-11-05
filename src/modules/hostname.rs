@@ -2,7 +2,7 @@
 //! cuando la restauración se ha verificado; si `sethostname` falla, el estado
 //! se conserva para reintentar.
 use crate::{state::State, sys};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use rand::Rng;
 
 fn set(name: &str) -> Result<()> {
@@ -22,7 +22,7 @@ fn current() -> Result<String> {
 pub fn enable(st: &mut State) -> Result<()> {
     let orig = current()?;
     st.hostname.get_or_insert(orig);
-    let new = format!("host-{:08x}", rand::thread_rng().gen::<u32>());
+    let new = format!("host-{:08x}", rand::rng().random::<u32>());
     set(&new)?;
     // Verificar que se mantiene: otro proceso podría revertirlo.
     std::thread::sleep(std::time::Duration::from_secs(3));
