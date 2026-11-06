@@ -1,0 +1,27 @@
+pkgbase = anonify
+	pkgdesc = Temporary, reversible network privacy hardening for Linux
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/grubberdubber/anonify
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-only
+	makedepends = cargo
+	makedepends = git
+	makedepends = rust
+	depends = gcc-libs
+	depends = glibc
+	depends = nftables
+	depends = iproute2
+	depends = util-linux
+	optdepends = tor: tor and dns modules
+	optdepends = wireguard-tools: vpn module
+	optdepends = networkmanager: runtime MAC/IPv6 changes through nmcli
+	optdepends = bubblewrap: launch --isolate
+	optdepends = curl: Tor exit-IP verification in check
+	optdepends = obfs4proxy: pluggable transports for --tor-bridges
+	options = !lto
+	source = anonify::git+https://github.com/grubberdubber/anonify#tag=v1.0.0
+	sha256sums = SKIP
+
+pkgname = anonify

@@ -1,0 +1,121 @@
+name: Release
+
+# Triggered by a version tag. Creating and pushing the tag is the only manual
+# step: the workflow builds, packages and publishes the archives.
+#
+#   git tag -s v1.0.0 -m "anonify 1.0.0" && git push origin v1.0.0
+#
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Build (glibc, both binaries)
+        run: cargo build --release --locked --bins
+
+      # A fully static binary for systems without a matching glibc. It still
+      # needs `nft`, `tor`, `ip` and `wg-quick` at runtime: the engine talks to
+      # the kernel and to those tools, it does not embed them.
+      - name: Build (static musl, engine only)
+        run: cargo build --release --locked --bin anonify --target x86_64-unknown-linux-musl
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          tar -C target/release -czf "dist/anonify-${version}-x86_64-linux-gnu.tar.gz" anonify anonify-browser
+          tar -C target/x86_64-unknown-linux-musl/release -czf "dist/anonify-${version}-x86_64-linux-musl.tar.gz" anonify
+          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS-linux)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*
+
+  portable:
+    name: Portable anonify-browser (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Only the portable surface is built here. The Linux engine is not part
+      # of this job (see docs/platforms.md for why it has no 1:1 port).
+      - name: Build anonify-browser
+        run: cargo build --release --locked --bin anonify-browser
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            target="anonify-browser-${version}-x86_64-windows.zip"
+            (cd target/release && 7z a "../../dist/${target}" anonify-browser.exe >/dev/null)
+          else
+            target="anonify-browser-${version}-x86_64-macos.tar.gz"
+            tar -C target/release -czf "dist/${target}" anonify-browser
+          fi
+          (cd dist && shasum -a 256 "${target}" > "${target}.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/*
+
+  publish:
+    name: Publish GitHub release
+    needs: [linux, portable]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -l dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "anonify ${GITHUB_REF_NAME#v}" \
+            --generate-notes

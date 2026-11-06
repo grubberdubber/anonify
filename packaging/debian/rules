@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+# Debian build rules for anonify.
+#
+# Debian builders run without network access, so the source tree must contain
+# the vendored crates (see ../vendor.sh) and .cargo/config.toml pointing at
+# them. Both the build and the test step are --offline --locked: a missing
+# crate fails the build instead of silently reaching for the network.
+#
+# Official Debian requires every Rust crate to be packaged in the archive and
+# built with dh-cargo instead of a vendored tree; see README.md.
+
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+export CARGO_NET_OFFLINE = true
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo build --release --locked --offline --bins
+
+override_dh_auto_test:
+	cargo test --release --locked --offline
+
+override_dh_auto_clean:
+	cargo clean
+	rm -rf debian/cargo-home
+
+.PHONY: override_dh_auto_build override_dh_auto_test override_dh_auto_clean

@@ -1,0 +1,29 @@
+Source: anonify
+Section: net
+Priority: optional
+Maintainer: anonify maintainers <grubberdubber@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85), gcc
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/grubberdubber/anonify
+Vcs-Git: https://github.com/grubberdubber/anonify.git
+Vcs-Browser: https://github.com/grubberdubber/anonify
+
+Package: anonify
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, nftables, iproute2, util-linux
+Recommends: tor, wireguard-tools, network-manager, bubblewrap, curl, obfs4proxy
+Description: temporary, reversible network privacy hardening
+ anonify layers network-anonymity hardening on Linux and takes it back off
+ again: randomized MAC and hostname, sysctl hardening, IPv6 and DNS leak
+ prevention, Tor or WireGuard behind a fail-closed nftables kill switch,
+ local discovery silencing, a read-only leak audit and a per-application
+ sandbox.
+ .
+ All state lives in /run/anonify (tmpfs) and in kernel runtime state, so
+ "anonify restore" or a reboot returns the machine to its original
+ configuration. It never deletes, alters or suppresses logs, audit records,
+ histories, timestamps or evidence, and it does not hide activity.
+ .
+ This package also ships anonify-browser, a portable helper that opens
+ Firefox or LibreWolf with a throwaway, leak-hardened profile without root.

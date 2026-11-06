@@ -1,0 +1,2 @@
+target/release/anonify usr/bin
+target/release/anonify-browser usr/bin

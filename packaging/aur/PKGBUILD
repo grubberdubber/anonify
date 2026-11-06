@@ -1,0 +1,47 @@
+# Maintainer: anonify <anonify@users.noreply.github.com>
+pkgname=anonify
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Temporary, reversible network privacy hardening for Linux"
+arch=('x86_64' 'aarch64')
+url="https://github.com/grubberdubber/anonify"
+license=('GPL-3.0-only')
+depends=('gcc-libs' 'glibc' 'nftables' 'iproute2' 'util-linux')
+makedepends=('cargo' 'git' 'rust')
+optdepends=(
+  'tor: tor and dns modules'
+  'wireguard-tools: vpn module'
+  'networkmanager: runtime MAC/IPv6 changes through nmcli'
+  'bubblewrap: launch --isolate'
+  'curl: Tor exit-IP verification in check'
+  'obfs4proxy: pluggable transports for --tor-bridges'
+)
+options=(!lto)
+source=("$pkgname::git+$url#tag=v$pkgver")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname"
+  export CARGO_TARGET_DIR=target
+  cargo build --release --locked --bins
+}
+
+check() {
+  cd "$pkgname"
+  export CARGO_TARGET_DIR=target
+  # Tests that touch nftables skip themselves unless they can prove they run
+  # in an isolated network namespace, so this is safe in a build chroot.
+  cargo test --release --locked
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 target/release/anonify "$pkgdir/usr/bin/anonify"
+  install -Dm755 target/release/anonify-browser "$pkgdir/usr/bin/anonify-browser"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 CHANGELOG.md "$pkgdir/usr/share/doc/$pkgname/CHANGELOG.md"
+  install -Dm644 docs/install.md "$pkgdir/usr/share/doc/$pkgname/install.md"
+  install -Dm644 docs/platforms.md "$pkgdir/usr/share/doc/$pkgname/platforms.md"
+  install -Dm644 docs/stability.md "$pkgdir/usr/share/doc/$pkgname/stability.md"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
