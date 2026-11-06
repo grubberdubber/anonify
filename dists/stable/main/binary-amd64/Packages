@@ -1,0 +1,31 @@
+Package: anonify
+Architecture: amd64
+Version: 1.0.0-1
+Priority: optional
+Section: net
+Maintainer: Rodrigo Martinez <elgalacticoyt@gmail.com>
+Installed-Size: 2178
+Depends: libc6 (>= 2.39), libgcc-s1 (>= 4.2), nftables, iproute2, procps
+Recommends: tor, wireguard-tools, network-manager, bubblewrap, curl, obfs4proxy
+Filename: pool/main/a/anonify/anonify_1.0.0-1_amd64.deb
+Size: 570428
+MD5sum: 1e557fc20f9d5d139c92bbbd733a46fd
+SHA1: bf82faebdedfb911e1ffc2a3ccdaeaf4e86e4cda
+SHA256: 5cbc4fa1c19a1d4e6661a27a7b9651dc25f34c5876282697dbf87751ad837668
+SHA512: 33b140a547fcfaefbc8e393ba1cc6a50de7e04b69230c54c309670586d7f46644f1594c62d81a03415e529d26ef2249830fe75a5ba0aa7a9c6bd4bbf4dee12b9
+Homepage: https://github.com/grubberdubber/anonify
+Description: temporary, reversible network privacy hardening
+ anonify layers network-anonymity hardening on Linux and takes it back off
+ again: randomized MAC and hostname, sysctl hardening, IPv6 and DNS leak
+ prevention, Tor or WireGuard behind a fail-closed nftables kill switch,
+ local discovery silencing, a read-only leak audit and a per-application
+ sandbox.
+ .
+ All state lives in /run/anonify (tmpfs) and in kernel runtime state, so
+ "anonify restore" or a reboot returns the machine to its original
+ configuration. It never deletes, alters or suppresses logs, audit records,
+ histories, timestamps or evidence, and it does not hide activity.
+ .
+ This package also ships anonify-browser, a portable helper that opens
+ Firefox or LibreWolf with a throwaway, leak-hardened profile without root.
+

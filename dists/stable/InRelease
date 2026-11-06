@@ -1,0 +1,34 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Fri, 06 Nov 2026 20:45:53 +0000
+Description: anonify apt repository
+Label: anonify
+Origin: anonify
+Suite: stable
+MD5Sum:
+ 69e75b958ed85fab1958a5f796da4be3              174 Release
+ e4b8a0638d529ded51ad74ac6a4a7bdb             1535 main/binary-amd64/Packages
+ af92c2044e45163f57c118d04fd0b126             1007 main/binary-amd64/Packages.gz
+SHA1:
+ 3b7af5669441a429e6febb1a94e93d854617bc23              174 Release
+ b95335cbec4fb1a97da21bb6ee7392c8efd94103             1535 main/binary-amd64/Packages
+ 62d934d94526c39ac43cffeec03066b176826bbe             1007 main/binary-amd64/Packages.gz
+SHA256:
+ 69eb6493d1ef6bd9c7f245376d363e77c8466518e7b3af87b3d27f8f189a4ac3              174 Release
+ 5332c2627a36ae248f2d148826929d58ae2e4d53a7090470ff3216341a56353b             1535 main/binary-amd64/Packages
+ 810b9961aafda7505e3cc34786a375ee4fe601067efd86abbfc4f5cbd155d03c             1007 main/binary-amd64/Packages.gz
+SHA512:
+ 9d188c0bcd86337c6709163a7295036885cd222795a06d1550905594c1382d2d17e444e74a6f6c89199489cbc46961e4f0886b58e9046a54dae9182e844ef7f9              174 Release
+ 639422897d19c16a27e8304ef9b77984dc53fd33fac31ee54449f7749e2cbfad81bc3cab494ef1243bf1eadfa199e535f5cbb2649ed4abb9703ed47a02bdb479             1535 main/binary-amd64/Packages
+ 11def38cc239c30b24481762de3c31b86e2f4b272bf522fc1001b61e53b54a96a9b8afd2200369e8d52cf703bfc5cbd106b5cda26e2f37f771e3a6e81e07adb6             1007 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQTalu9V2oHiU6I5VKqI+nmeKsFluwUCau48gQAKCRCI+nmeKsFl
+u21aAQCZviJNxgI+CVY/diyu6Jp4TWV0LkzsJ+w3fxbtaysJDgD+OTprLwsAg7S1
+EaPlGFYqUNo2Crd0xHQzGzxOU653GwA=
+=gBoL
+-----END PGP SIGNATURE-----
