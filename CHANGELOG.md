@@ -4,10 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.0] - 2026-11-06
+
+First stable release. The CLI, the `--json` reports of `status`, `check` and
+`doctor`, the exit codes and the `state.json` format are covered by the 1.x
+stability contract in [`docs/stability.md`](docs/stability.md). No absolute
+anonymity is promised; the threat model is unchanged.
 
 ### Added
 
+- `doctor`: a read-only preflight that runs without root and reports blockers
+  (`fail`: no `nftables`, corrupt or pending state, orphaned `anonify_*`
+  tables), warnings (not root, unwritable `sysctl`, `systemd-resolved` stub
+  resolver, a foreign listener on `127.0.0.1:9050`, plaintext swap) and notes
+  (optional tools missing). `--json` emits the same report; exit code 1 only
+  when something blocks a safe run.
+- Packaging: AUR `PKGBUILD` (tagged source, `--locked` build, optional
+  dependencies as `optdepends`), a Fedora/COPR spec with a vendoring helper for
+  offline mock builds, and a Debian `debian/` directory for `.deb` builds.
+- `.github/workflows/release.yml`: pushing a `v*` tag builds glibc and static
+  musl Linux archives plus the portable `anonify-browser` for Windows/macOS,
+  publishes checksums and creates the GitHub release.
+- `docs/install.md` (AUR, cargo, source, releases, Windows/macOS, uninstall)
+  and `docs/stability.md` (what 1.x will not break).
 - `lan`: silences local service discovery so the LAN stops learning the
   machine's hostname and services. A dedicated `inet anonify_lan` table drops
   outbound `mDNS` (5353), `LLMNR` (5355), `SSDP` (1900), `NetBIOS`

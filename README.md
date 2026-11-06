@@ -13,9 +13,10 @@
 <p align="center">
   <a href="https://github.com/grubberdubber/anonify/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/grubberdubber/anonify/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/License-GPL--3.0-green.svg?style=flat-square&logo=gnu"></a>
-  <a href="https://www.rust-lang.org/"><img alt="Rust 1.98+" src="https://img.shields.io/badge/Rust-1.98%2B-orange.svg?style=flat-square&logo=rust"></a>
+  <a href="https://www.rust-lang.org/"><img alt="Rust 1.85+" src="https://img.shields.io/badge/Rust-1.85%2B-orange.svg?style=flat-square&logo=rust"></a>
   <img alt="Platform: Linux" src="https://img.shields.io/badge/Platform-Linux-lightgrey.svg?style=flat-square&logo=linux">
   <img alt="State: RAM only" src="https://img.shields.io/badge/State-RAM_only-critical.svg?style=flat-square">
+  <a href="https://github.com/grubberdubber/anonify/releases"><img alt="Release: 1.0.0" src="https://img.shields.io/badge/Release-1.0.0-blue.svg?style=flat-square"></a>
   <a href="#support-this-project"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2.svg?style=flat-square&logo=githubsponsors&logoColor=white"></a>
 </p>
 
@@ -78,6 +79,7 @@ It is **not** a tool for evading law enforcement investigation, destroying evide
 | `killswitch` | Strict firewall allowing only loopback, DHCP, VPN interfaces (`wg*`, `tun*`, `proton*`), the resolved VPN endpoint, and Tor daemon traffic.         | Deletes the `inet anonify_ks` table.                                    |
 | `lan`        | Silences local service discovery (`mDNS`/5353, `LLMNR`/5355, `SSDP`/1900, `NetBIOS`/137-139, `WS-Discovery`/3702) in an `nftables` output chain with `policy accept`: the LAN stops learning the hostname and services, and the internet is never cut. | Deletes the `inet anonify_lan` table.                                    |
 | `check`      | Audits DNS, IPv6, MAC, hostname, sysctl, Tor, VPN, kill-switch state, default routes and extra physical interfaces. Public-IP checks go through Tor and are skipped if no anonymity layer is active. `--json` emits the same report for scripts. | Read-only; no changes.                                                  |
+| `doctor`     | Read-only preflight for a new machine: missing tools, corrupt or `pending` state, orphaned `anonify_*` tables, a stub resolver, a foreign process on `9050`, plaintext swap. Runs **without root** and is the first command to run. `--json` for scripts. | Read-only; no changes.                                                  |
 | `launch`     | Starts apps with a whitelisted environment (`PATH`, display/session vars only), `TZ`/`LANG`/`LC_*` set in the child, `no_new_privs`, and a dropped capability bounding set. Under `sudo` it never runs as root. `--isolate` adds a `bubblewrap` sandbox (read-only `/usr` and `/etc`, private `/tmp`, `/dev/shm` and `HOME`, own hostname, no network) and points `XDG_CACHE_HOME`/`TMPDIR` at that tmpfs. `launch browser` opens Firefox/LibreWolf with a throwaway, leak-hardened profile in tmpfs and the local Tor SOCKS when it is up. | Process exit; nothing persists.                                          |
 | `rotate`     | Re-randomizes the MAC (same vendor policy) and hostname of the active `mac`/`hostname` modules. | The saved originals are untouched, so `restore` still works.            |
 | `watch`      | Re-checks every active module against the real system state on an interval and warns on drift (NetworkManager reverting a MAC, someone deleting the nftables table, …). `--restore` runs a full restore on the first drift; `--once` checks once and exits 1 on drift. | Read-only unless `--restore` is used.                                   |
@@ -96,7 +98,12 @@ other programs, and never touches their logging or audit state.
 
 ## Requirements & Installation
 
+Full instructions, per distribution, are in [`docs/install.md`](docs/install.md).
+
 ```bash
+# 0. Check the machine first: no root, no changes, tells you what is missing
+anonify doctor        # (once installed; before that, see below)
+
 # 1. System dependencies (Rust 1.85+ / edition 2024)
 sudo pacman -S --needed rust tor nftables wireguard-tools openresolv iproute2 curl bubblewrap util-linux
 # Optional: pluggable transports for `--tor-bridges` (obfs4, snowflake, ...)
@@ -110,6 +117,16 @@ cargo build --release
 # 3. Install the binary
 sudo install -m755 target/release/anonify /usr/local/bin/
 ```
+
+### Packages
+
+- **Arch Linux (AUR)**: `yay -S anonify` once published; the `PKGBUILD` is in
+  [`packaging/aur`](packaging/aur) and can be built now with `makepkg -si`.
+- **Fedora (COPR)**: spec and submission steps in [`packaging/fedora`](packaging/fedora).
+- **Debian/Ubuntu**: `debian/` directory in [`packaging/debian`](packaging/debian).
+- **Prebuilt archives**: every `v*` tag attaches static/glibc Linux archives and
+  the portable `anonify-browser` for Windows/macOS to the
+  [release page](https://github.com/grubberdubber/anonify/releases).
 
 ### Windows and macOS: `anonify-browser`
 
@@ -303,6 +320,21 @@ to ship. The profile is memory-backed and disappears on reboot; its path is
 printed so you can inspect it. Your normal Firefox profile, `/etc/localtime`
 and the system clock are never touched.
 
+### Diagnose before you enable anything
+
+```bash
+anonify doctor            # no root needed, changes nothing
+anonify doctor --json | jq '.findings[] | select(.level=="fail")'
+```
+
+`doctor` answers "why is this not working on *my* machine": it checks that
+`nft`, `ip`, `wg-quick`, `tor` and the optional tools exist, that the state file
+is loadable and not stuck `pending`, that no `anonify_*` nftables table is
+orphaned, that `/etc/resolv.conf` is not a `systemd-resolved` stub (which would
+undo the `dns` module), that nothing else already owns `127.0.0.1:9050`, and
+whether swap would put `/run/anonify` on disk in clear text. Exit code 1 means
+something would block a safe run; warnings never change the exit code.
+
 ### Restore everything
 
 ```bash
@@ -338,7 +370,7 @@ export ANONIFY_LANG=es
 
 ## Contributing
 
-Found a bug, a network configuration this doesn't handle, or an idea for a privacy module? Please [open an issue](../../issues). Well-structured, focused pull requests that fit the project's scope are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting: contributions that delete or tamper with logs, audit trails, timestamps, histories, or evidence are rejected.
+Found a bug, a network configuration this doesn't handle, or an idea for a privacy module? Please [open an issue](../../issues). The 1.x compatibility promise (CLI, JSON, exit codes, state format) is in [`docs/stability.md`](docs/stability.md). Well-structured, focused pull requests that fit the project's scope are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting: contributions that delete or tamper with logs, audit trails, timestamps, histories, or evidence are rejected.
 
 Helping the project get seen counts too: [docs/launch-kit.md](docs/launch-kit.md) has ready-to-adapt posts for Hacker News, Rust/privacy communities and privacy catalogs, plus the compatibility-report template that feeds the test matrix.
 

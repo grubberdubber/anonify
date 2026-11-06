@@ -148,7 +148,10 @@ publicado deliberadamente.
 **Actuales:** `mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor` (con
 `--tor-bridges`), `vpn`, `killswitch`, `check`, `launch` (`--isolate` con
 `bubblewrap` y `browser` con perfil efímero en tmpfs), `lan` (descubrimiento
-local silenciado), `rotate`, `watch`, `status`/`check --json`. Portable:
+local silenciado), `doctor` (preflight de solo lectura, sin root), `rotate`,
+`watch`, `status`/`check --json`. El contrato de compatibilidad de la rama 1.x
+(CLI, `--json`, códigos de salida, formato de `state.json`) vive en
+[`docs/stability.md`](docs/stability.md): romperlo exige un major. Portable:
 `anonify-browser` (perfil endurecido, sin privilegios, Linux/Windows/macOS).
 Transversales:
 `mlockall`, `zeroize` de secretos y estado, y endurecimiento del proceso
@@ -169,7 +172,7 @@ anti-forense”.
 ## 9. Plataformas: Linux primero, portable donde no hay kernel
 
 El motor (`mac`, `hostname`, `sysctl`, `ipv6`, `dns`, `tor`, `vpn`,
-`killswitch`, `lan`, `check`, `watch`, `launch`) depende de kernel y daemons de
+`killswitch`, `lan`, `check`, `doctor`, `watch`, `launch`) depende de kernel y daemons de
 Linux: `nftables`, `sysctl`, `NetworkManager`, `/run` (tmpfs), `bwrap` y
 `setpriv`. No se finge un port: en Windows/macOS solo se publica la superficie
 portable `anonify-browser`, que no pide administrador ni toca configuración del

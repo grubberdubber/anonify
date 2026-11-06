@@ -1,6 +1,6 @@
 [package]
 name = "anonify"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Temporary, reversible network privacy hardening for Linux (portable browser profile for Windows/macOS)"
