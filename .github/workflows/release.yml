@@ -119,11 +119,12 @@ jobs:
           if [ "${RUNNER_OS}" = "Windows" ]; then
             target="anonify-browser-${version}-x86_64-windows.zip"
             (cd target/release && 7z a "../../dist/${target}" anonify-browser.exe >/dev/null)
+            (cd dist && sha256sum "${target}" > "${target}.sha256")
           else
             target="anonify-browser-${version}-x86_64-macos.tar.gz"
             tar -C target/release -czf "dist/${target}" anonify-browser
+            (cd dist && shasum -a 256 "${target}" > "${target}.sha256")
           fi
-          (cd dist && shasum -a 256 "${target}" > "${target}.sha256")
 
       - uses: actions/upload-artifact@v4
         with:
