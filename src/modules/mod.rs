@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod bwrap;
 pub mod check;
 pub mod dns;
+pub mod doctor;
 pub mod hostname;
 pub mod ipv6;
 pub mod killswitch;

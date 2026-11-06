@@ -12,7 +12,9 @@ mod watchdog;
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use i18n::{Lang, tr};
-use modules::{Module, check, dns, hostname, ipv6, killswitch, lan, launch, mac, sysctl, tor, vpn};
+use modules::{
+    Module, check, dns, doctor, hostname, ipv6, killswitch, lan, launch, mac, sysctl, tor, vpn,
+};
 use state::State;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -77,6 +79,13 @@ enum Cmd {
     },
     /// Fail-closed leak checks (no clear-net requests)
     Check {
+        /// Machine-readable JSON on stdout (stable field names)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Read-only preflight: dependencies, privileges, state and environment
+    /// hazards, before you enable anything (works without root)
+    Doctor {
         /// Machine-readable JSON on stdout (stable field names)
         #[arg(long)]
         json: bool,
@@ -662,7 +671,10 @@ fn main() -> Result<()> {
 
     lock_memory(lang);
 
-    if !matches!(cli.cmd, Cmd::Launch(_)) && !sys::is_root() {
+    // `launch` and `doctor` never change system state, so they must keep
+    // working for unprivileged users (and `doctor` is most useful *before*
+    // the first `sudo anonify enable`).
+    if !matches!(cli.cmd, Cmd::Launch(_) | Cmd::Doctor { .. }) && !sys::is_root() {
         bail!(
             "{}",
             tr(
@@ -746,6 +758,7 @@ fn dispatch(cmd: Cmd, lang: Lang) -> Result<()> {
         }
         Cmd::Status { json } => status(lang, json),
         Cmd::Check { json } => check(lang, json),
+        Cmd::Doctor { json } => doctor::run(lang, json),
         Cmd::Watch(args) => watch::run(
             lang,
             &watch::Options {
