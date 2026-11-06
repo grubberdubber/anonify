@@ -56,6 +56,39 @@ jobs:
           name: dist-linux
           path: dist/*
 
+  debian:
+    name: Debian package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built inside Debian trixie so the package, its dependencies and the
+      # lintian run match the distribution it targets, not the runner's.
+      - name: Build .deb
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          docker run --rm \
+            -v "$PWD":/src:ro \
+            -v "$PWD/dist":/out \
+            debian:trixie bash -c '
+              set -euo pipefail
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+                build-essential ca-certificates cargo debhelper dpkg-dev fakeroot git rustc lintian
+              cp -a /src /work && cd /work
+              ./packaging/vendor.sh
+              cp -r packaging/debian debian
+              chmod +x debian/rules
+              dpkg-buildpackage -us -uc -b
+              cp /anonify_*.deb /anonify_*.changes /anonify_*.buildinfo /out/
+              lintian /out/anonify_*.changes'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-deb
+          path: dist/*
+
   portable:
     name: Portable anonify-browser (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -99,7 +132,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
-    needs: [linux, portable]
+    needs: [linux, debian, portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -119,3 +152,51 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "anonify ${GITHUB_REF_NAME#v}" \
             --generate-notes
+
+  # Refreshes the apt repository served from GitHub Pages. The signing key
+  # lives in the APT_SIGNING_KEY secret; without it the job fails loudly
+  # instead of publishing an unsigned repository.
+  apt:
+    name: Publish apt repository
+    needs: [debian]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-deb
+          path: deb
+
+      - name: Build signed repository
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$APT_SIGNING_KEY" || { echo "::error::APT_SIGNING_KEY secret is not set"; exit 1; }
+          mkdir -p pub
+          docker run --rm \
+            -v "$PWD":/src:ro \
+            -v "$PWD/deb":/debs:ro \
+            -v "$PWD/pub":/pub \
+            -e "APT_SIGNING_KEY=$APT_SIGNING_KEY" \
+            debian:trixie bash -c '
+              set -euo pipefail
+              apt-get update -qq
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends apt-utils gnupg
+              bash /src/packaging/apt-repo.sh /debs /pub'
+          cp packaging/apt/index.html pub/index.html
+          touch pub/.nojekyll
+
+      - name: Push to gh-pages
+        run: |
+          set -euo pipefail
+          cd pub
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "chore(apt): publish ${GITHUB_REF_NAME#v}"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

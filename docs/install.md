@@ -26,27 +26,49 @@ anonify doctor --json | jq '.findings[] | select(.level=="fail")'
 Exit code is `1` only when it finds a blocker (missing `nftables`, corrupt or
 pending state, or an `anonify_*` nftables table no active module owns).
 
-## Arch Linux / AUR
+## Debian / Ubuntu (apt repository)
 
-The `PKGBUILD` lives in [`packaging/aur`](../packaging/aur). Once the package
-is in the AUR:
+The package is published to a signed apt repository served from GitHub Pages.
+Works on Debian 13 (trixie) and later, and on Ubuntu 24.04 and later:
 
 ```bash
-yay -S anonify          # or: paru -S anonify
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://grubberdubber.github.io/anonify/anonify-archive-keyring.gpg \
+  | sudo tee /etc/apt/keyrings/anonify-archive-keyring.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/anonify-archive-keyring.gpg] \
+https://grubberdubber.github.io/anonify/ stable main" \
+  | sudo tee /etc/apt/sources.list.d/anonify.list
+sudo apt update
+sudo apt install anonify
 sudo anonify doctor
 ```
+
+Check the key fingerprint before trusting it:
+
+```
+DA96 EF55 DA81 E253 A239  54AA 88FA 799E 2AC1 65BB
+```
+
+The package ships `anonify`, `anonify-browser` and both man pages. Runtime
+dependencies: `nftables`, `iproute2`, `procps`. Recommended: `tor`,
+`wireguard-tools`, `network-manager`, `bubblewrap`, `curl`, `obfs4proxy`.
+
+## Arch Linux / AUR
+
+The `PKGBUILD` lives in [`packaging/aur`](../packaging/aur). The AUR is
+currently not accepting new packages, so build it locally in the meantime:
+
+```bash
+git clone https://github.com/grubberdubber/anonify.git
+cd anonify/packaging/aur && makepkg -si
+sudo anonify doctor
+```
+
+Once it is published there, `yay -S anonify` (or `paru -S anonify`) will work.
 
 Runtime dependencies installed by the package: `nftables`, `iproute2`,
 `util-linux`. Optional: `tor`, `wireguard-tools`, `networkmanager`,
 `bubblewrap`, `curl`, `obfs4proxy`.
-
-To build it yourself before it is published:
-
-```bash
-git clone https://github.com/grubberdubber/anonify.git
-cd anonify/packaging/aur
-makepkg -si
-```
 
 ## Cargo (any Linux distribution)
 
@@ -79,7 +101,7 @@ sudo pacman -S --needed nftables iproute2 util-linux tor wireguard-tools \
 Debian/Ubuntu equivalents:
 
 ```bash
-sudo apt install nftables iproute2 util-linux tor wireguard-tools \
+sudo apt install nftables iproute2 procps tor wireguard-tools \
                  network-manager bubblewrap curl obfs4proxy
 ```
 

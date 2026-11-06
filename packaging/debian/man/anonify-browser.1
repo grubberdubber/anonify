@@ -1,0 +1,41 @@
+.TH ANONIFY-BROWSER 1 "2026-11-06" "anonify 1.0.0" "User Commands"
+.SH NAME
+anonify-browser \- open Firefox or LibreWolf with a throwaway, hardened profile
+.SH SYNOPSIS
+.B anonify-browser
+[\fIOPTIONS\fR] [\fIURL\fR]
+.SH DESCRIPTION
+.B anonify-browser
+starts a browser with a freshly created profile in RAM, hardened preferences
+and a sanitized environment, then removes the profile when the browser exits.
+It never touches the user's normal profile, history or bookmarks, and it does
+not need root.
+.PP
+The helper works on Linux, Windows and macOS; the rest of
+.B anonify
+is Linux-only.
+.SH OPTIONS
+.TP
+.B \-\-lang \fR(\fIen\fR|\fIes\fR)
+Force a message language instead of detecting it from the OS locale.
+.TP
+.B \-h, \-\-help
+Print help.
+.TP
+.B \-V, \-\-version
+Print version.
+.SH ARGUMENTS
+.TP
+.I URL
+Page to open. Only http and https are accepted. Omit it for a blank start.
+.SH BROWSER SELECTION
+The first of
+.BR librewolf ", " firefox ", " firefox-esr
+found in
+.B PATH
+is used.
+.SH EXIT STATUS
+Zero on success, non-zero when no supported browser is installed or the
+browser cannot be started.
+.SH SEE ALSO
+.BR anonify (1)

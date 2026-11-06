@@ -1,7 +1,7 @@
 Source: anonify
 Section: net
 Priority: optional
-Maintainer: anonify maintainers <grubberdubber@users.noreply.github.com>
+Maintainer: Rodrigo Martinez <elgalacticoyt@gmail.com>
 Build-Depends: debhelper-compat (= 13), cargo, rustc (>= 1.85), gcc
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
@@ -11,7 +11,7 @@ Vcs-Browser: https://github.com/grubberdubber/anonify
 
 Package: anonify
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, nftables, iproute2, util-linux
+Depends: ${shlibs:Depends}, ${misc:Depends}, nftables, iproute2, procps
 Recommends: tor, wireguard-tools, network-manager, bubblewrap, curl, obfs4proxy
 Description: temporary, reversible network privacy hardening
  anonify layers network-anonymity hardening on Linux and takes it back off

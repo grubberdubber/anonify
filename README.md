@@ -120,10 +120,14 @@ sudo install -m755 target/release/anonify /usr/local/bin/
 
 ### Packages
 
-- **Arch Linux (AUR)**: `yay -S anonify` once published; the `PKGBUILD` is in
-  [`packaging/aur`](packaging/aur) and can be built now with `makepkg -si`.
+- **Debian/Ubuntu (apt)**: signed repository, installs with `apt install anonify`.
+  See [`docs/install.md`](docs/install.md#debian--ubuntu-apt-repository).
+- **Arch Linux (AUR)**: `PKGBUILD` in [`packaging/aur`](packaging/aur), buildable
+  with `makepkg -si`; the AUR is temporarily closed to new packages, so the
+  repository below is the fastest route there.
 - **Fedora (COPR)**: spec and submission steps in [`packaging/fedora`](packaging/fedora).
-- **Debian/Ubuntu**: `debian/` directory in [`packaging/debian`](packaging/debian).
+- **Debian source package**: `debian/` directory in [`packaging/debian`](packaging/debian),
+  ready for `mentors.debian.net`.
 - **Prebuilt archives**: every `v*` tag attaches static/glibc Linux archives and
   the portable `anonify-browser` for Windows/macOS to the
   [release page](https://github.com/grubberdubber/anonify/releases).

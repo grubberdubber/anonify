@@ -1,0 +1,138 @@
+.TH ANONIFY 1 "2026-11-06" "anonify 1.0.0" "User Commands"
+.SH NAME
+anonify \- temporary, reversible network privacy hardening
+.SH SYNOPSIS
+.B anonify
+[\fIOPTIONS\fR] \fICOMMAND\fR [\fIARGS\fR]
+.SH DESCRIPTION
+.B anonify
+applies network-anonymity hardening to a Linux machine and can take it back
+off again. It randomizes the MAC address and hostname, applies a set of
+kernel hardening keys, closes IPv6 and DNS leaks, brings up Tor or WireGuard
+behind a fail-closed
+.BR nftables
+kill switch, silences LAN discovery, audits the result and can run individual
+applications in a sandbox.
+.PP
+All of its own state lives in
+.I /run/anonify
+(tmpfs) and in kernel runtime state, so
+.B anonify restore
+or a reboot returns the machine to its original configuration. It never
+deletes, alters or suppresses logs, audit records, shell or browser
+histories, timestamps or evidence, and it does not hide activity from the
+system's own accounting.
+.PP
+Commands that change the system must run as root. Only
+.BR doctor " and " launch
+work without it.
+.SH OPTIONS
+.TP
+.B \-\-lang \fR(\fIen\fR|\fIes\fR)
+Force a message language instead of detecting it from the OS locale.
+.TP
+.B \-q, \-\-quiet
+Suppress the startup banner and decorative output.
+.TP
+.B \-\-timeout \fISECONDS\fR
+Safety net: run
+.B restore
+automatically after the given number of seconds no matter what. Recommended
+while testing modules that can cut your own connectivity (tor, vpn, dns,
+killswitch).
+.TP
+.B \-h, \-\-help
+Print help.
+.TP
+.B \-V, \-\-version
+Print version.
+.SH COMMANDS
+.TP
+.B enable \fIMODULE\fR...
+Enable one or more modules. Vetted layers are enabled in a safe order, and a
+failure rolls back what was already applied. Without arguments it lists the
+available modules; with
+.B \-\-all
+it enables mac, hostname, sysctl, ipv6, tor and dns.
+.TP
+.B disable \fR[\fIMODULE\fR...]
+Disable the given modules, or every active module when called without
+arguments.
+.TP
+.B restore
+Revert every change recorded in the state file, verifying each value by
+reading the real system state. Original values are only discarded once the
+restore has been confirmed.
+.TP
+.B rotate
+Re-randomize the MAC addresses and hostname of the active
+.B mac
+and
+.B hostname
+modules without touching the saved originals, so
+.B restore
+still returns the machine to its real values.
+.TP
+.B status
+Show active modules, the values applied and any drift from the recorded
+state.
+.TP
+.B check
+Run fail-closed leak checks (DNS, IPv6, ICMP, routes, Tor/VPN, kill switch)
+without sending clear-net requests when no anonymity layer is active.
+.TP
+.B doctor
+Read-only preflight: verifies dependencies, privileges, state integrity and
+environment hazards before anything is enabled. Works without root.
+.B \-\-json
+emits a stable, machine-readable report.
+.TP
+.B watch
+Watch for configuration drift and optionally restore on the first hit.
+.TP
+.B launch \fISUBCOMMAND\fR
+Run an application with a sanitized environment and, optionally, in a
+.BR bubblewrap
+sandbox. The timezone and locale are set for that process only; the system
+clock is never touched. Subcommands:
+.BR vbox ,
+.BR proton ,
+.B browser
+and
+.BR exec .
+.SH FILES
+.TP
+.I /run/anonify/state.json
+Active modules and the original values needed for rollback. Permissions 0600,
+written atomically, and removed by a successful
+.BR restore .
+.SH EXAMPLES
+.LP
+Check the machine before touching anything:
+.PP
+.RS 4
+anonify doctor
+.RE
+.PP
+Enable the core layers with a safety net that restores after ten minutes:
+.PP
+.RS 4
+sudo anonify \-\-timeout 600 enable \-\-all
+.RE
+.PP
+Put everything back:
+.PP
+.RS 4
+sudo anonify restore
+.RE
+.SH SEE ALSO
+.BR anonify-browser (1),
+.BR nft (8),
+.BR tor (1),
+.BR wg-quick (8)
+.SH LIMITATIONS
+.B anonify
+reduces what a network observer can correlate; it does not provide absolute
+anonymity, and it does not protect an already compromised machine, nor
+identities the user authenticates with on purpose. See the project
+documentation for the full threat model.
