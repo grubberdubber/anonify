@@ -537,11 +537,22 @@ mod tests {
             .collect()
     }
 
+    /// Falla si hay algún hallazgo de ese nivel, mostrando cuáles. Se comprueba
+    /// el primer elemento en vez de `is_empty()` para que el mensaje incluya
+    /// los hallazgos inesperados si algún día aparecen.
+    fn expect_none(findings: &[Finding], level: Level) {
+        let found = levels(findings, level);
+        assert!(
+            matches!(found.as_slice(), []),
+            "unexpected {level:?} findings: {found:?}"
+        );
+    }
+
     #[test]
     fn healthy_system_is_ready() {
         let findings = evaluate(&healthy());
-        assert!(levels(&findings, Level::Fail).is_empty());
-        assert!(levels(&findings, Level::Warn).is_empty());
+        expect_none(&findings, Level::Fail);
+        expect_none(&findings, Level::Warn);
         assert!(levels(&findings, Level::Ok).contains(&"ready"));
     }
 
@@ -578,7 +589,7 @@ mod tests {
         let mut facts = healthy();
         facts.root = false;
         let findings = evaluate(&facts);
-        assert!(levels(&findings, Level::Fail).is_empty());
+        expect_none(&findings, Level::Fail);
         assert!(levels(&findings, Level::Warn).contains(&"privileges"));
     }
 
@@ -591,8 +602,8 @@ mod tests {
         facts.nmcli = false;
         facts.tor_binary = false;
         let findings = evaluate(&facts);
-        assert!(levels(&findings, Level::Fail).is_empty());
-        assert!(levels(&findings, Level::Warn).is_empty());
+        expect_none(&findings, Level::Fail);
+        expect_none(&findings, Level::Warn);
         for id in ["wireguard", "curl", "bwrap"] {
             assert!(levels(&findings, Level::Note).contains(&id), "{id}");
         }
@@ -606,7 +617,7 @@ mod tests {
         facts.socks_busy = true;
         facts.plain_swap = vec!["swap is active on /dev/sda2 without verified encryption".into()];
         let findings = evaluate(&facts);
-        assert!(levels(&findings, Level::Fail).is_empty());
+        expect_none(&findings, Level::Fail);
         let warns = levels(&findings, Level::Warn);
         for id in ["sysctl", "resolved", "socks", "swap"] {
             assert!(warns.contains(&id), "{id}");
