@@ -39,11 +39,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Inside the UTS namespace /proc/sys/kernel/hostname is writable even on
+# minimal images that do not ship the `hostname` binary from inetutils.
 printf '[*] hostname transitorio\n'
-original_hostname=$(hostname)
-hostname "anonify-smoke-$$"
-[ "$(hostname)" = "anonify-smoke-$$" ]
-hostname "$original_hostname"
+hostname_file=/proc/sys/kernel/hostname
+if printf '' >>"$hostname_file" 2>/dev/null; then
+    original_hostname=$(cat "$hostname_file")
+    printf 'anonify-smoke-%s' "$$" >"$hostname_file"
+    [ "$(cat "$hostname_file")" = "anonify-smoke-$$" ]
+    printf '%s' "$original_hostname" >"$hostname_file"
+else
+    # Some container runtimes do not grant CAP_SYS_ADMIN in the new UTS
+    # namespace even to uid 0; the module itself needs the same capability.
+    printf '    aviso: UTS no escribible en este contenedor; se omite\n'
+fi
 
 printf '[*] nftables: crear, listar y borrar una tabla\n'
 nft -f - <<'NFT'
