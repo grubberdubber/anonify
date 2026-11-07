@@ -6,7 +6,10 @@
 #   ./packaging/debian/upload.sh -k -      -n                        # lintian only
 #
 # Everything runs in the anonify-deb-upload container (podman); the host only
-# needs podman and gpg. Your ~/.gnupg is bind-mounted, never copied.
+# needs podman and gpg. The keyring is copied into tmpfs for the run: the
+# container must not share ~/.gnupg with the host agent, which holds the
+# keybox lock and makes gpg give up with "keydb_search failed: Connection
+# timed out". The copy disappears when the run ends.
 #
 # Options:
 #   -k <keyid>   OpenPGP key id or fingerprint (required unless -n is used)
@@ -29,7 +32,7 @@ while getopts ":k:d:snrh" opt; do
     s) mode=sign ;;
     n) mode=check ;;
     r) rebuild=1 ;;
-    h) sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    h) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option -$OPTARG (see -h)" >&2; exit 2 ;;
   esac
 done
@@ -63,6 +66,16 @@ if [ ! -d "$gnupg" ]; then
   exit 1
 fi
 
+# Sign from a throwaway copy of the keyring instead of bind-mounting the real
+# one. Two gpg instances sharing a keybox fight over its lock, and the host
+# gpg-agent keeps it while the container waits for the same file, so signing
+# times out. tmpfs keeps the copy off disk.
+shm=$(mktemp -d "${SHM_DIR:-/dev/shm}/anonify-gnupg-XXXXXX" 2>/dev/null || mktemp -d)
+chmod 700 "$shm"
+trap 'rm -rf "$shm"' EXIT
+tar -C "$gnupg" -cf - --exclude='S.*' --exclude='*.lock' --exclude='.#lk*' . \
+  | tar -C "$shm" -xf -
+
 # Signing needs a terminal for the passphrase (pinentry-tty); signing without
 # one would hang, so only attach a tty when the caller has one.
 tty_flags=()
@@ -77,5 +90,5 @@ echo "==> mode: $mode"
   -e HOME=/tmp \
   -e GNUPGHOME=/gnupg \
   -v "$src_dir":/src:Z \
-  -v "$gnupg":/gnupg:Z \
+  -v "$shm":/gnupg:Z \
   "$image" "$(basename "$changes")" "${keyid:--}" "$mode"
