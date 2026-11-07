@@ -9,7 +9,7 @@ account on the other side. Debian itself is in [debian-upload.md](debian-upload.
 | GitHub releases (Linux glibc/musl, macOS, Windows) | automated, live | nothing |
 | crates.io | ready, verified with `cargo publish --dry-run` | `cargo login` token |
 | Snap Store | manifest ready in `snap/snapcraft.yaml` | `snapcraft login`, classic review |
-| BlackArch | `packaging/blackarch/PKGBUILD` ready | GitHub PR |
+| BlackArch | PR open: <https://github.com/BlackArch/blackarch/pull/5154> | review |
 | Debian archive / Kali | source package + guide ready | mentors account, GPG key, sponsor |
 | Ubuntu PPA | same source package | Launchpad account + same GPG key |
 | Flatpak | **not viable**, see below | — |
@@ -61,17 +61,24 @@ multipass, and the release job has neither.
 
 BlackArch takes packages by pull request against <https://github.com/BlackArch/blackarch>.
 The PKGBUILD is in `packaging/blackarch/` and builds from the tagged tarball
-(checksum pinned to `v1.0.0`).
+(sha512 pinned to `v1.0.0`); it follows their `PKGBUILD-rust` template.
+
+Status: **PR #5154 is open** (<https://github.com/BlackArch/blackarch/pull/5154>).
+Nothing else to do until they review; if they ask for changes, edit the PKGBUILD
+here and `makepkg --printsrcinfo > .SRCINFO` again. Watch out for their stated
+rejection reason "unnecessary anonymization helpers": the PR body answers it
+with the reversible state machine, verified restore and the leak audit, none of
+which `torctl` has.
 
 ```bash
 git clone https://github.com/BlackArch/blackarch
 cd blackarch
 mkdir -p packages/anonify
-cp /path/to/anonify/packaging/blackarch/PKGBUILD packages/anonify/
-cd packages/anonify
-makepkg --printsrcinfo > .SRCINFO
+cp /path/to/anonify/packaging/blackarch/PKGBUILD /path/to/anonify/packaging/blackarch/.SRCINFO \
+   packages/anonify/
 makepkg -f                           # must build clean
-namcap PKGBUILD anonify-1.0.0-1-x86_64.pkg.tar.zst
+namcap PKGBUILD                      # no output
+bsdtar -xf anonify-1.0.0-1-x86_64.pkg.tar.zst -C /tmp/stage
 git checkout -b anonify
 git add packages/anonify
 git commit -m "anonify: add package"
@@ -79,8 +86,9 @@ git push origin anonify              # then open the PR on GitHub
 ```
 
 Their CI lints the PKGBUILD and builds it in a clean chroot. Keep `depends`
-accurate (`procps-ng`, not `procps`, on Arch) and regenerate `.SRCINFO` on every
-version bump, or the PR is rejected.
+accurate (`procps-ng`, not `procps`, on Arch), never list `glibc`/`gcc-libs`
+(implicit), keep the license as an SPDX id (`GPL-3.0-only`) and regenerate
+`.SRCINFO` on every version bump, or the PR is rejected.
 
 Arch's own AUR is closed to new packages right now (bot/spam restrictions on
 account creation), which is why `packaging/aur/PKGBUILD` is kept in-tree but
