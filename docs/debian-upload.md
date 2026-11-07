@@ -18,26 +18,33 @@ There is also a technical blocker at the end of this document: Debian does not
 accept vendored Rust dependencies in the archive. Read section 8 before you
 promise yourself an upload date.
 
-## 1. Install the tooling
+## 1. Tooling: nothing to install on the host
 
-On a Debian/Ubuntu machine (or inside a `debian:trixie` container):
+The Debian tools (`lintian`, `debsign`, `dput`, `dpkg-buildpackage`) are not
+needed on your machine and are not packaged on Arch, Fedora or openSUSE. They
+run in a `debian:trixie` container instead:
 
 ```bash
-sudo apt install devscripts dput dh-cargo lintian sbuild \
-                 python3-debian reportbug gnupg
+podman build -t anonify-deb-upload \
+  -f packaging/debian/Containerfile.upload packaging/debian
 ```
 
-Configure your identity once, in `~/.devscripts`:
+`packaging/debian/upload.sh` builds that image on first use, mounts your
+`~/.gnupg` (never copies it), mounts `dist/source`, and runs lintian, `debsign`
+and `dput` as your own uid. The host only needs **podman** and **gpg**.
+
+If you do have a Debian or Ubuntu box, the classic route is still:
 
 ```bash
+sudo apt install devscripts dput lintian sbuild python3-debian reportbug gnupg
 cat > ~/.devscripts <<'EOF'
 DEBFULLNAME="Rodrigo Martinez"
 DEBEMAIL="elgalacticoyt@gmail.com"
 EOF
 ```
 
-Every Debian tool picks the name and address from there. The `Maintainer:`
-field of `packaging/debian/control` must match it exactly.
+The `Maintainer:` field of `packaging/debian/control` must match that address
+exactly, which it already does.
 
 ## 2. Create your OpenPGP key
 
@@ -114,7 +121,7 @@ the apt repository download count).
 
 ## 5. Build the source package
 
-From a checkout of this repository:
+From a checkout of this repository (also container-only, no apt on the host):
 
 ```bash
 ./packaging/debian/make-source.sh dist/source
@@ -122,57 +129,56 @@ ls dist/source
 # anonify_1.0.0-1.dsc
 # anonify_1.0.0.orig.tar.gz
 # anonify_1.0.0-1.debian.tar.xz
+# anonify_1.0.0-1_source.buildinfo
+# anonify_1.0.0-1_source.changes   <- this is what dput sends
 ```
 
-Then check it the way a sponsor will:
+Then check it the way a sponsor will, without signing anything:
 
 ```bash
-lintian --pedantic --fail-on error dist/source/anonify_1.0.0-1_source.changes
-sbuild --dist=trixie dist/source/anonify_1.0.0-1.dsc     # clean chroot build
+./packaging/debian/upload.sh -n        # lintian --pedantic --fail-on error
 ```
 
-`sbuild` needs a chroot; create it once with `sudo sbuild-createchroot trixie
-/srv/chroot/trixie-amd64 http://deb.debian.org/debian`.
+Expected output: only `P:` (pedantic) notes about the hand-written manual pages
+and the prebuilt `.o` files that `cargo vendor` leaves in `vendor/wit-bindgen`.
+Any `E:` or `W:` stops the upload.
 
 ## 6. Sign and upload
 
-`dput` config (HTTPS, as documented by mentors):
+The source package is uploaded as a `_source.changes`, which references the
+`.dsc`, the `.orig.tar.gz` and the `.debian.tar.xz`. `debsign` signs the `.dsc`,
+the `.buildinfo` and the `.changes`, and rewrites the checksums in the `.changes`
+after each signature. `upload.sh` does exactly that, then `dput`s:
 
 ```bash
-cat > ~/.dput.cf <<'EOF'
-[mentors]
-fqdn = mentors.debian.net
-incoming = /upload
-method = https
-allow_unsigned_uploads = 0
-progress_indicator = 2
-allowed_distributions = .*
-EOF
+# sign only: useful to inspect the result before touching the network
+./packaging/debian/upload.sh -k elgalacticoyt@gmail.com -s
+
+# sign and upload to mentors.debian.net
+./packaging/debian/upload.sh -k elgalacticoyt@gmail.com
 ```
 
-The source package is uploaded as a `_source.changes`, which references the
-`.dsc`, the `.orig.tar.gz` and the `.debian.tar.xz`. `debsign` signs both the
-`.changes` and the `.dsc` it points at:
+The `dput` configuration (`fqdn`, `incoming = /upload`, `method = https`) is
+written inside the container, so nothing is added to `~/.dput.cf`. Your
+passphrase is asked by `pinentry-tty` in that same terminal; the key stays in
+`~/.gnupg`.
+
+Without the wrapper, the equivalent commands are:
 
 ```bash
 debsign -k elgalacticoyt@gmail.com dist/source/anonify_1.0.0-1_source.changes
-```
-
-Then upload:
-
-```bash
 dput mentors dist/source/anonify_1.0.0-1_source.changes
 ```
 
 If the package is rejected, the confirmation email says why; fix it, bump the
 version in `debian/changelog` (`dch -i`), rebuild, sign again and re-upload.
-Use `dput -f` only after reading the error, never to force past a signature or
-checksum failure.
+Never force past a signature or checksum failure.
 
-Verify it is really there:
+Verify it is really there (this is what makes the package page exist):
 
 ```bash
-dget -x https://mentors.debian.net/debian/pool/main/a/anonify/anonify_1.0.0-1.dsc
+curl -sI https://mentors.debian.net/debian/pool/main/a/anonify/anonify_1.0.0-1.dsc
+# HTTP/1.1 200 OK, and https://mentors.debian.net/package/anonify/ stops being a 404
 ```
 
 ## 7. Ask for a sponsor

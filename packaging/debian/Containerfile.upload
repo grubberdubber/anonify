@@ -1,0 +1,26 @@
+# Tooling for signing and uploading the source package to mentors.debian.net
+# from a host that has no Debian userland (Arch, Fedora, …).
+#
+#   podman build -t anonify-deb-upload -f packaging/debian/Containerfile.upload packaging/debian
+#
+# distrobox/podman only; nothing is installed on the host.
+FROM debian:trixie
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      devscripts \
+      dput \
+      dpkg-dev \
+      gnupg \
+      lintian \
+      pinentry-tty \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY upload-entrypoint.sh /usr/local/bin/upload-entrypoint
+RUN chmod 0755 /usr/local/bin/upload-entrypoint
+
+# The entrypoint runs as the caller's uid (podman --userns=keep-id), so it must
+# not need root and must not write outside /src or /tmp.
+WORKDIR /src
+ENTRYPOINT ["/usr/local/bin/upload-entrypoint"]
