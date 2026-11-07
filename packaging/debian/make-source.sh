@@ -19,14 +19,29 @@ if [ -z "$engine" ]; then
 fi
 [ -n "$engine" ] || { echo "error: install podman or docker" >&2; exit 1; }
 
-"$engine" run --rm -v "$PWD":/src:ro -v "$out":/out debian:trixie bash -c '
+git rev-parse --git-dir >/dev/null 2>&1 || {
+  echo "error: run this from a git checkout of anonify" >&2
+  exit 1
+}
+
+# Ship the tracked tree only. The working copy also holds build output and
+# local artefacts (dist/, target/, graphify-out/, editor and agent files) that
+# are gitignored and must never reach the orig tarball: dist/ even contains a
+# previously built copy of this very source package.
+srctar=$(mktemp -t anonify-src-XXXXXX.tar)
+trap 'rm -f "$srctar"' EXIT
+git ls-files -z \
+  | while IFS= read -r -d '' file; do [ -e "$file" ] && printf '%s\0' "$file"; done \
+  | tar --null --files-from=- --create --file="$srctar"
+
+"$engine" run --rm -v "$srctar":/src.tar:ro -v "$out":/out debian:trixie bash -c '
 set -euo pipefail
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
   build-essential ca-certificates cargo debhelper dpkg-dev fakeroot git rustc tar xz-utils
 
 rm -rf /work && mkdir -p /work/src
-tar -C /src -cf - --exclude=target --exclude=.git . | tar -C /work/src -xf -
+tar -C /work/src -xf /src.tar
 cd /work/src
 ./packaging/vendor.sh
 
