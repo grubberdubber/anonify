@@ -83,12 +83,18 @@ reportbug --email elgalacticoyt@gmail.com wnpp
 # choose "ITP" and fill the fields
 ```
 
-or send this mail to `submit@bugs.debian.org`:
+or send this mail to `submit@bugs.debian.org`.
+
+The `To`, `Subject` and `X-Debbugs-Cc` fields belong in the mail client's
+header fields, never in the body: the BTS parses pseudo-headers from the first
+lines of the body, and the body must start with `Package:`. A body that begins
+with `To:` is rejected with "Message with no Package: tag cannot be processed".
+
+Header fields: `To: submit@bugs.debian.org`, `Cc:
+ elgalacticoyt@gmail.com`, subject `ITP: anonify -- reversible network privacy
+hardening for Linux`. Body (this is the whole body, starting at `Package:`):
 
 ```
-To: submit@bugs.debian.org
-Subject: ITP: anonify -- temporary, reversible network privacy hardening
-
 Package: wnpp
 Severity: wishlist
 Owner: Rodrigo Martinez <elgalacticoyt@gmail.com>
@@ -99,7 +105,7 @@ Owner: Rodrigo Martinez <elgalacticoyt@gmail.com>
 * URL             : https://github.com/grubberdubber/anonify
 * License         : GPL-3.0-only
   Programming Lang: Rust
-  Description     : temporary, reversible network privacy hardening
+  Description     : reversible network privacy hardening for Linux
 
  anonify layers network-anonymity hardening on a Linux machine and takes it
  back off again: randomized MAC and hostname, kernel hardening, IPv6 and DNS
