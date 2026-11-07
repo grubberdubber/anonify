@@ -13,12 +13,12 @@ Package: anonify
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, nftables, iproute2, procps
 Recommends: tor, wireguard-tools, network-manager, bubblewrap, curl, obfs4proxy
-Description: temporary, reversible network privacy hardening
- anonify layers network-anonymity hardening on Linux and takes it back off
- again: randomized MAC and hostname, sysctl hardening, IPv6 and DNS leak
- prevention, Tor or WireGuard behind a fail-closed nftables kill switch,
- local discovery silencing, a read-only leak audit and a per-application
- sandbox.
+Description: reversible network privacy hardening for Linux
+ anonify layers network privacy hardening on a running Linux host and takes it
+ back off again: randomized, locally administered MAC and hostname, sysctl
+ hardening, IPv6 and DNS leak prevention, Tor or WireGuard behind a fail-closed
+ nftables kill switch, local discovery silencing, a read-only leak audit and a
+ per-application sandbox.
  .
  All state lives in /run/anonify (tmpfs) and in kernel runtime state, so
  "anonify restore" or a reboot returns the machine to its original

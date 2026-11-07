@@ -1,6 +1,6 @@
 anonify (1.0.0-1) unstable; urgency=medium
 
-  * Initial release.
+  * Initial release. (Closes: #1153365)
   * Modules: mac, hostname, sysctl, ipv6, dns, tor, vpn, killswitch, lan,
     launch; plus status, check, doctor, rotate and watch.
   * Ships the portable anonify-browser helper.
