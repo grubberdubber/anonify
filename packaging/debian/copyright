@@ -15,3 +15,15 @@ License: GPL-3.0-only
  .
  On Debian systems, the complete text of the GNU General Public License
  version 3 can be found in "/usr/share/common-licenses/GPL-3".
+
+Files: vendor/*
+Copyright: 2014-2026 the Rust crate authors
+License: other
+ Third-party crates pulled in by Cargo.lock, each one carrying its own
+ license. The license text of every crate is in its directory under vendor/
+ and the full list is in Cargo.lock; most are MIT or Apache-2.0, and the GNU
+ GPL-3.0-only above covers the anonify code itself.
+Comment: This vendored tree exists only so the package can be built without
+ network access. It is not acceptable for a Debian archive upload, which
+ requires dh-cargo and every crate packaged as librust-*-dev; see
+ docs/debian-upload.md.

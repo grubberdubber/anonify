@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `docs/debian-upload.md`: the complete path from a local source package to the
+  Debian archive through `mentors.debian.net` — ITP bug, `debsign`, `dput`,
+  request for sponsorship — plus the Ubuntu PPA and Kali routes and the vendored
+  crates limitation a sponsor will raise.
+- `docs/distribution.md`: channel matrix for apt, crates.io, snap, BlackArch and
+  Debian/Kali, and why Flatpak is not a viable container for this tool.
+- `packaging/debian/watch` and `packaging/debian/upstream/metadata` so Debian
+  tooling can find new upstream tags; `make-source.sh` now emits the signed-ready
+  `_source.changes` and its `.buildinfo`, and works with podman or docker.
+- `snap/snapcraft.yaml` (core24, classic confinement) and
+  `packaging/blackarch/PKGBUILD` (builds from the tagged tarball, checksum
+  pinned).
+- crates.io packaging: `exclude` list in `Cargo.toml` so the published crate
+  carries only the sources; `cargo publish --dry-run` verified.
+
 ## [1.0.0] - 2026-11-06
 
 First stable release. The CLI, the `--json` reports of `status`, `check` and

@@ -9,6 +9,16 @@ repository = "https://github.com/grubberdubber/anonify"
 readme = "README.md"
 keywords = ["privacy", "anonymity", "tor", "linux", "cli"]
 categories = ["command-line-utilities"]
+# Packaging trees, vendored crates and CI files do not belong in the crate
+# tarball published to crates.io.
+exclude = [
+    "/.github",
+    "/dist",
+    "/packaging",
+    "/snap",
+    "/tests",
+    "/vendor",
+]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }

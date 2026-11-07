@@ -41,6 +41,24 @@ docker run --rm -v "$PWD":/src:ro -v "$PWD/dist":/out debian:trixie bash -c '
   dpkg-buildpackage -us -uc -b && cp /anonify_*.{deb,changes,buildinfo} /out/'
 ```
 
+## Source package for mentors
+
+A binary build is not what gets uploaded; a source package is. This produces
+`.dsc`, `.orig.tar.gz`, `.debian.tar.xz`, `_source.buildinfo` and the
+`_source.changes` that `dput` sends:
+
+```bash
+./packaging/debian/make-source.sh dist/source
+lintian --pedantic --fail-on error dist/source/anonify_1.0.0-1_source.changes
+debsign -k <keyid> dist/source/anonify_1.0.0-1_source.changes
+dput mentors dist/source/anonify_1.0.0-1_source.changes
+```
+
+The script picks podman or docker automatically. `watch` and
+`upstream/metadata` are included for the Debian tooling. The full process,
+including the ITP bug and the request for sponsorship, is in
+[`docs/debian-upload.md`](../../docs/debian-upload.md).
+
 ## Latest release
 
 The published apt repository is

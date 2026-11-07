@@ -74,7 +74,8 @@ Runtime dependencies installed by the package: `nftables`, `iproute2`,
 
 ```bash
 # Rust 1.85 or newer (edition 2024)
-cargo install --git https://github.com/grubberdubber/anonify --bins
+cargo install anonify --locked        # from crates.io, once the crate is published
+cargo install --git https://github.com/grubberdubber/anonify --bins   # or from git
 # or, from a checkout, without touching the PATH-managed registry:
 cargo install --path . --bins
 ```

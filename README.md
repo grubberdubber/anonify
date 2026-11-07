@@ -125,9 +125,17 @@ sudo install -m755 target/release/anonify /usr/local/bin/
 - **Arch Linux (AUR)**: `PKGBUILD` in [`packaging/aur`](packaging/aur), buildable
   with `makepkg -si`; the AUR is temporarily closed to new packages, so the
   repository below is the fastest route there.
-- **Fedora (COPR)**: spec and submission steps in [`packaging/fedora`](packaging/fedora).
-- **Debian source package**: `debian/` directory in [`packaging/debian`](packaging/debian),
-  ready for `mentors.debian.net`.
+  On Arch today, the BlackArch `PKGBUILD` is the package that actually builds
+  without cloning.
+- **Debian source package**: [`packaging/debian`](packaging/debian) builds a lintian-clean
+  source package, ready for `mentors.debian.net`. Upload steps (and the Kali and
+  Ubuntu PPA routes) are in [`docs/debian-upload.md`](docs/debian-upload.md).
+- **BlackArch**: `PKGBUILD` in [`packaging/blackarch`](packaging/blackarch), builds
+  from the tagged tarball; see [`docs/distribution.md`](docs/distribution.md).
+- **crates.io**: metadata and `cargo publish --dry-run` are in place; `cargo publish`
+  makes `cargo install anonify` work (binary crate).
+- **Snap**: `snap/snapcraft.yaml`, classic confinement, needs the store's
+  manual review before it leaves the `edge` channel.
 - **Prebuilt archives**: every `v*` tag attaches static/glibc Linux archives and
   the portable `anonify-browser` for Windows/macOS to the
   [release page](https://github.com/grubberdubber/anonify/releases).

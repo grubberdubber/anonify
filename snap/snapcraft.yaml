@@ -1,0 +1,46 @@
+name: anonify
+base: core24
+version: "1.0.0"
+summary: Temporary, reversible network privacy hardening for Linux
+description: |
+  anonify layers network-anonymity hardening on a Linux machine and takes it
+  back off again: randomized MAC and hostname, kernel hardening, IPv6 and DNS
+  leak prevention, Tor or WireGuard behind a fail-closed nftables kill switch,
+  and a per-application sandbox.
+
+  All state lives in /run (tmpfs) and in kernel runtime state, so a reboot or
+  "anonify restore" returns the machine to its original configuration. It does
+  not delete, alter or suppress logs, audit records, histories or evidence.
+
+  This snap is classic-confinement: the tool configures nftables, sysctl and
+  network interfaces, which a strictly confined snap cannot do.
+
+grade: stable
+confinement: classic
+license: GPL-3.0-only
+website: https://github.com/grubberdubber/anonify
+source-code: https://github.com/grubberdubber/anonify
+issues: https://github.com/grubberdubber/anonify/issues
+contact: elgalacticoyt@gmail.com
+
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  anonify:
+    command: bin/anonify
+  anonify-browser:
+    command: bin/anonify-browser
+
+parts:
+  anonify:
+    plugin: rust
+    source: .
+    rust-channel: "1.85"
+    # The host provides nftables, iproute2 and procps in a classic snap, so the
+    # tools are not staged; only the binaries here are ours.
+    override-prime: |
+      craftctl default
+      install -Dm644 "$CRAFT_PART_SRC/README.md" "$CRAFT_PRIME/usr/share/doc/anonify/README.md"
+      install -Dm644 "$CRAFT_PART_SRC/LICENSE" "$CRAFT_PRIME/usr/share/doc/anonify/LICENSE"
