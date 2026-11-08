@@ -18,6 +18,10 @@ There is also a technical blocker at the end of this document: Debian does not
 accept vendored Rust dependencies in the archive. Read section 8 before you
 promise yourself an upload date.
 
+This document is the **first** upload only. Once the package has been accepted,
+each following version is the much shorter checklist in
+[`debian-release.md`](debian-release.md): changelog, build, upload, tag.
+
 ## 1. Tooling: nothing to install on the host
 
 The Debian tools (`lintian`, `debsign`, `dput`, `dpkg-buildpackage`) are not

@@ -128,8 +128,10 @@ sudo install -m755 target/release/anonify /usr/local/bin/
   On Arch today, the BlackArch `PKGBUILD` is the package that actually builds
   without cloning.
 - **Debian source package**: [`packaging/debian`](packaging/debian) builds a lintian-clean
-  source package, ready for `mentors.debian.net`. Upload steps (and the Kali and
-  Ubuntu PPA routes) are in [`docs/debian-upload.md`](docs/debian-upload.md).
+  source package, ready for `mentors.debian.net`. Getting it in for the first
+  time (and the Kali and Ubuntu PPA routes) is in
+  [`docs/debian-upload.md`](docs/debian-upload.md); the per-release checklist is
+  in [`docs/debian-release.md`](docs/debian-release.md).
 - **BlackArch**: `PKGBUILD` in [`packaging/blackarch`](packaging/blackarch), builds
   from the tagged tarball; see [`docs/distribution.md`](docs/distribution.md).
 - **crates.io**: metadata and `cargo publish --dry-run` are in place; `cargo publish`

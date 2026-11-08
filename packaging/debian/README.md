@@ -84,11 +84,13 @@ Once the package is in Debian, a release is a changelog entry plus a rebuild:
 ```
 
 `new-version.sh` writes the changelog stanza (package name, maintainer line and
-date copied from the current entry, UTC date) and prints the next commands; add
-`-b` to build the source package right away, or `-D noble` to target an Ubuntu
+date copied from the current entry, UTC date) and prints the next commands;add `-b` to build the source package right away, or `-D noble` to target an Ubuntu
 distribution. The ITP, the RFS bug and the NEW queue are one-time: a version
 bump only needs the sponsor to upload, and once you hold upload rights yourself
 (`dput ftp-master`) it needs nobody.
+
+The full per-release checklist, from the version number to the tag and the
+sponsor mail, is [`docs/debian-release.md`](../../docs/debian-release.md).
 
 ## What still needs a human
 
