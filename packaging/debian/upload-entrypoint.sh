@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs inside the anonify-deb-upload image: lintian, then debsign, then dput.
 #
-#   upload-entrypoint <changes-file> <key-id|-> <check|sign|upload>
+#   upload-entrypoint <changes-file> <key-id|-> <check|sign|upload> [force]
 #
 # GNUPGHOME is bind-mounted from the host, so the private key never leaves the
 # machine and never enters the image.
@@ -10,6 +10,7 @@ set -euo pipefail
 changes=${1:?changes file required}
 keyid=${2:?-}
 mode=${3:-check}
+force=${4:-}
 
 cd /src
 
@@ -43,5 +44,13 @@ progress_indicator = 2
 allowed_distributions = .*
 EOF
 
+# A previous upload that mentors rejected (for example because the signing key
+# was not yet on a keyserver) leaves a *.upload log behind, and dput refuses to
+# retry while it exists. --force tells dput to upload again anyway.
+dput_flags=()
+if [ "$force" = force ]; then
+  dput_flags+=(--force)
+fi
+
 echo "==> dput mentors"
-dput -c /tmp/dput.cf mentors "$changes"
+dput "${dput_flags[@]}" -c /tmp/dput.cf mentors "$changes"

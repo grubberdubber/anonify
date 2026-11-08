@@ -3,7 +3,7 @@
 #
 #   ./packaging/debian/upload.sh -k elgalacticoyt@gmail.com          # sign + upload
 #   ./packaging/debian/upload.sh -k <keyid> -s                       # sign only
-#   ./packaging/debian/upload.sh -k -      -n                        # lintian only
+#   ./packaging/debian/upload.sh -k <keyid> -f                       # re-upload after a rejection
 #
 # Everything runs in the anonify-deb-upload container (podman); the host only
 # needs podman and gpg. The keyring is copied into tmpfs for the run: the
@@ -16,6 +16,7 @@
 #   -d <dir>     directory holding the *_source.changes (default: dist/source)
 #   -s           sign only, do not upload
 #   -n           check only: lintian, no signing, no upload
+#   -f           force: upload again even if dput has a local *.upload log
 #   -r           rebuild the container image before running
 set -euo pipefail
 
@@ -24,13 +25,15 @@ src_dir=$repo_root/dist/source
 keyid=
 mode=upload
 rebuild=0
+force=
 
-while getopts ":k:d:snrh" opt; do
+while getopts ":k:d:snfrh" opt; do
   case $opt in
     k) keyid=$OPTARG ;;
     d) src_dir=$(cd -- "$OPTARG" && pwd) ;;
     s) mode=sign ;;
     n) mode=check ;;
+    f) force=force ;;
     r) rebuild=1 ;;
     h) awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option -$OPTARG (see -h)" >&2; exit 2 ;;
@@ -91,4 +94,4 @@ echo "==> mode: $mode"
   -e GNUPGHOME=/gnupg \
   -v "$src_dir":/src:Z \
   -v "$shm":/gnupg:Z \
-  "$image" "$(basename "$changes")" "${keyid:--}" "$mode"
+  "$image" "$(basename "$changes")" "${keyid:--}" "$mode" "$force"
