@@ -1,0 +1,85 @@
+name: Debian packaging
+
+# Builds what Debian and Ubuntu actually consume: the source package that dput
+# uploads, and the binary packages. Neither needs a GPG key, so this runs
+# without secrets. Uploading to mentors or the archive stays manual: the
+# signature has to come from a key in the Debian keyring.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - '.github/workflows/packaging.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Source package + lintian (trixie)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The tag drives the release, but the package version lives in
+      # debian/changelog. A mismatch here would upload a .dsc whose version
+      # disagrees with the release, which the archive rejects.
+      - name: Tag matches debian/changelog
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          upstream=$(sed -n '1s/^[^ ]* (\([^)]*\)).*/\1/p' packaging/debian/changelog)
+          upstream=${upstream#*:}
+          upstream=${upstream%-*}
+          if [ "$tag" != "$upstream" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match changelog version $upstream"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches changelog version $upstream"
+
+      - name: Build the source package
+        run: ./packaging/debian/make-source.sh dist/source
+
+      - name: Lintian (source)
+        run: |
+          docker run --rm -v "$PWD/dist/source":/src:ro debian:trixie bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends lintian
+            cd /src && lintian --pedantic --fail-on error ./*_source.changes'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-source
+          path: dist/source/*
+          if-no-files-found: error
+
+  binary:
+    name: Binary packages + lintian (trixie)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the .deb in Debian trixie
+        run: |
+          mkdir -p dist/binary
+          docker run --rm -v "$PWD":/src:ro -v "$PWD/dist/binary":/out debian:trixie bash -c '
+            set -euo pipefail
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+              build-essential ca-certificates cargo debhelper dpkg-dev fakeroot git lintian rustc
+            cp -a /src /work && cd /work
+            ./packaging/vendor.sh
+            cp -r packaging/debian debian && chmod +x debian/rules
+            dpkg-buildpackage -us -uc -b
+            lintian --fail-on error /anonify_*_amd64.changes
+            cp /anonify_*.deb /anonify_*.changes /anonify_*.buildinfo /out/'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-binary
+          path: dist/binary/*
+          if-no-files-found: error
