@@ -1,23 +1,43 @@
 #!/usr/bin/env bash
 # Builds the Debian source package (orig + debian tarball + .dsc) that dput
-# uploads. Run it on the host; it does the work in a Debian trixie container so
-# dpkg-source and the Rust toolchain match the target distribution.
+# uploads. The work happens in a Debian trixie container so dpkg-source and the
+# Rust toolchain match the target distribution. The package name and version
+# are read from packaging/debian/changelog, so a version bump needs no edit
+# here or anywhere else.
 #
-#   ./packaging/debian/make-source.sh [output-dir]   # default: dist/source
+#   ./packaging/debian/make-source.sh [output-dir]      # default: dist/source
+#   ./packaging/debian/make-source.sh -l [output-dir]   # build here, inside Debian
+#
+# Options:
+#   -l   do not start a container; run packaging/debian/build-source.sh in the
+#        current userland. Only for a Debian host that already has cargo,
+#        dpkg-dev and debhelper installed.
 #
 # The result is unsigned: signing needs the maintainer's own GPG key.
 set -euo pipefail
 
-cd "$(dirname "$0")/../.."
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+local_run=0
+
+while getopts ":lh" opt; do
+  case $opt in
+    l) local_run=1 ;;
+    h)
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"
+      exit 0
+      ;;
+    *)
+      echo "unknown option -$OPTARG (see -h)" >&2
+      exit 2
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+cd "$repo_root"
 out=${1:-dist/source}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-
-engine=${CONTAINER_ENGINE:-}
-if [ -z "$engine" ]; then
-  engine=$(command -v podman || command -v docker || true)
-fi
-[ -n "$engine" ] || { echo "error: install podman or docker" >&2; exit 1; }
 
 git rev-parse --git-dir >/dev/null 2>&1 || {
   echo "error: run this from a git checkout of anonify" >&2
@@ -30,35 +50,32 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
 # previously built copy of this very source package.
 srctar=$(mktemp -t anonify-src-XXXXXX.tar)
 trap 'rm -f "$srctar"' EXIT
-git ls-files -z \
-  | while IFS= read -r -d '' file; do [ -e "$file" ] && printf '%s\0' "$file"; done \
-  | tar --null --files-from=- --create --file="$srctar"
+git ls-files -z |
+  while IFS= read -r -d '' file; do [ -e "$file" ] && printf '%s\0' "$file"; done |
+  tar --null --files-from=- --create --file="$srctar"
 
-"$engine" run --rm -v "$srctar":/src.tar:ro -v "$out":/out debian:trixie bash -c '
+builder=$repo_root/packaging/debian/build-source.sh
+if [ "$local_run" = 1 ]; then
+  exec bash "$builder" "$srctar" "$out"
+fi
+
+engine=${CONTAINER_ENGINE:-}
+if [ -z "$engine" ]; then
+  engine=$(command -v podman || command -v docker || true)
+fi
+if [ -z "$engine" ]; then
+  echo "error: install podman or docker, or run inside Debian with -l" >&2
+  exit 1
+fi
+
+"$engine" run --rm \
+  -v "$srctar":/src.tar:ro \
+  -v "$out":/out \
+  -v "$builder":/build-source.sh:ro \
+  debian:trixie bash -c '
 set -euo pipefail
 apt-get update -qq
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-  build-essential ca-certificates cargo debhelper dpkg-dev fakeroot git rustc tar xz-utils
-
-rm -rf /work && mkdir -p /work/src
-tar -C /work/src -xf /src.tar
-cd /work/src
-./packaging/vendor.sh
-
-mkdir -p /work/build
-tar --exclude=debian --exclude=target --exclude=.git \
-  --transform "s,^\\.,anonify-1.0.0," \
-  -czf /work/build/anonify_1.0.0.orig.tar.gz .
-cd /work/build
-tar -xzf anonify_1.0.0.orig.tar.gz
-cp -r /work/src/packaging/debian anonify-1.0.0/debian
-chmod +x anonify-1.0.0/debian/rules
-cd anonify-1.0.0
-# -S makes the source-only .changes that dput uploads; both it and the .dsc
-# are signed afterwards with the maintainer key.
-dpkg-buildpackage -S -us -uc
-cp /work/build/anonify_1.0.0-1.dsc /work/build/anonify_1.0.0.orig.tar.gz \
-   /work/build/anonify_1.0.0-1.debian.tar.xz /work/build/*_source.buildinfo \
-   /work/build/*_source.changes /out/
-ls -l /out
+  build-essential ca-certificates cargo debhelper dpkg-dev git rustc tar xz-utils
+exec bash /build-source.sh /src.tar /out
 '
